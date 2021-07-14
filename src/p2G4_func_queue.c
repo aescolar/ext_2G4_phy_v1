@@ -68,7 +68,6 @@ void fq_add(bs_time_t time, f_index_t index, uint32_t dev_nbr) {
   fq_element_t *el = &f_queue[dev_nbr];
   el->time = time;
   el->f_index = index;
-  fq_find_next();
 }
 
 /**
@@ -77,8 +76,6 @@ void fq_add(bs_time_t time, f_index_t index, uint32_t dev_nbr) {
 void fq_remove(uint32_t d){
   f_queue[d].f_index = None;
   f_queue[d].time = TIME_NEVER;
-
-  fq_find_next();
 }
 
 /**
@@ -87,6 +84,13 @@ void fq_remove(uint32_t d){
  */
 void fq_call_next(){
   fptrs[f_queue[next_d].f_index](next_d);
+}
+
+/**
+ * Move to the next time in the function queue
+ */
+void fq_step() {
+  fq_find_next();
 }
 
 /**

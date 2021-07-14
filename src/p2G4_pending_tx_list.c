@@ -75,24 +75,3 @@ void txl_clear(uint d){
   }
   max_tx_nbr = -1;//if we didnt find any
 }
-
-/**
- * Find if there is a fitting tx for this rx attempt
- * if there is not, return -1
- * if there is, return the device number
- */
-int txl_find_fitting_tx(p2G4_rx_t *rx_s, bs_time_t current_time){
-  register uint *used = tx_l_c.used;
-  for (int i = 0 ; i <= max_tx_nbr; i++) {
-    if ((used[i]) &&
-       (tx_list[i].tx_s.start_time == current_time) &&
-       (tx_list[i].tx_s.phy_address == rx_s->phy_address) &&
-       (tx_list[i].tx_s.radio_params.center_freq == rx_s->radio_params.center_freq) &&
-       ((tx_list[i].tx_s.radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
-           (rx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK)))
-    {
-      return i;
-    }
-  }
-  return -1;
-}

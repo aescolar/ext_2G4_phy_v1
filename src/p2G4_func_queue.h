@@ -22,12 +22,13 @@ typedef enum {
   Wait_Done,
   Tx_End,
   RSSI_Meas,
-  Rx_Search,
+  Rx_Found,
   Rx_Sync,
   Rx_Header,
   Rx_Payload,
   Tx_Abort_Reeval,
   Tx_Start,
+  Rx_Search,
   N_funcs //Minor issue: one too many
 } f_index_t;
 //Note: We need to use these indexes, instead of just keeping the function pointers
@@ -73,6 +74,11 @@ bs_time_t fq_get_next_time();
  * Note: The function itself is left in the queue.
  */
 void fq_call_next();
+
+/**
+ * Move to the next time in the function queue
+ */
+void fq_step();
 
 /**
  * Remove whichever entry may be queued for this interface
