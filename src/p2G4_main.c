@@ -357,6 +357,9 @@ static void f_rx_payload(uint d){
     if (pick_and_validate_abort(d, &(rx_a[d].rx_s.abort), "Rx") != 0) {
       return;
     }
+    if ( rx_a[d].rx_s.abort.abort_time < rx_a[d].payload_end ) {
+        rx_a[d].payload_end = rx_a[d].rx_s.abort.abort_time;
+    }
   }
 
   if ( tx_l_c.used[rx_a[d].tx_nbr] == 0 ) { //if the Tx aborted
@@ -384,7 +387,12 @@ static void f_rx_payload(uint d){
     p2G4_handle_next_request(d);
     return;
   } else {
-    fq_add(current_time + 1, Rx_Payload, d);
+    bs_time_t next_time = current_time + 1;
+    if (rx_a[d].biterrors > 0) {
+      //If there is already bit errors, there is no need to keep recalculating, the result will be a CRC_ERROR
+      next_time = BS_MIN(rx_a[d].rx_s.abort.recheck_time, rx_a[d].payload_end);
+    }
+    fq_add(next_time, Rx_Payload, d);
     return;
   }
 }
