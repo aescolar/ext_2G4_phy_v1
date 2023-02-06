@@ -39,8 +39,9 @@ int close_dump_files();
 
 /**
  * Write to file information about a transmission
+ * (v2 API)
  */
-void dump_tx(tx_el_t *tx, uint d);
+void dump_tx(tx_el_t *tx, uint dev_nbr);
 
 /**
  * Write to file information about a completed reception

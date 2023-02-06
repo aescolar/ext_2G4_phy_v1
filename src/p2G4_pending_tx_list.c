@@ -39,17 +39,18 @@ void txl_free(void){
  * Register a tx which has just been initiated by a device
  * Note that the tx itself does not start yet (when that happens txl_activate() should be called)
  */
-void txl_register(uint d, p2G4_tx_t *tx_s, uint8_t* packet){
-  tx_l_c.used[d] = 0;
-  memcpy(&(tx_list[d].tx_s), tx_s, sizeof(p2G4_tx_t) );
+void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet, bool v1){
+  tx_l_c.used[d] = TXS_OFF;
+  memcpy(&(tx_list[d].tx_s), tx_s, sizeof(p2G4_txv2_t) );
   tx_list[d].packet = packet;
+  tx_list[d].was_v1api = v1;
 }
 
 /**
  * Activate a given tx in the tx_list_c (we have reached the begining of the Tx)
  */
 void txl_activate(uint d){
-  tx_l_c.used[d] = 1;
+  tx_l_c.used[d] = TXS_PACKET;
   tx_l_c.ctr++;
 }
 
@@ -57,7 +58,7 @@ void txl_activate(uint d){
  * A given tx has just ended
  */
 void txl_clear(uint d){
-  tx_l_c.used[d] = 0;
+  tx_l_c.used[d] = TXS_OFF;
   if (tx_list[d].packet != NULL) {
     free(tx_list[d].packet);
     tx_list[d].packet = NULL;

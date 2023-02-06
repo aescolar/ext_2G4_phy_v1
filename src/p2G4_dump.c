@@ -36,19 +36,19 @@ typedef struct {
 
 static t_dump_check_stats *stats = NULL;
 
-static FILE **tx_f = NULL;
-static FILE **rx_f = NULL;
+static FILE **txv1_f = NULL;
+static FILE **rxv1_f = NULL;
 static FILE **RSSI_f = NULL;
 static FILE **modemrx_f = NULL;
 
-static void dump_tx_heading(FILE *file){
+static void dump_txv1_heading(FILE *file){
   fprintf(file,
           "start_time,end_time,center_freq,"
           "phy_address,modulation,power_level,abort_time,"
           "recheck_time,packet_size,packet\n");
 }
 
-static void dump_rx_heading(FILE *file){
+static void dump_rxv1_heading(FILE *file){
   fprintf(file,"start_time,scan_duration,phy_address,modulation,"
                "center_freq,antenna_gain,sync_threshold,header_threshold,"
                "pream_and_addr_duration,"
@@ -118,6 +118,8 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
                      const char* p, const uint n_dev_i){
   char* path;
 
+  /*TODO: Add command line option to select if v1 dumps should be produced or not (By default yes)*/
+
   comp = comp_i;
   stop_on_diff = stop;
   n_dev = n_dev_i;
@@ -125,27 +127,27 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
   path = bs_create_result_folder(s);
 
   stats = bs_calloc(n_dev, sizeof(t_dump_check_stats));
-  tx_f = bs_calloc(n_dev, sizeof(FILE *));
-  rx_f = bs_calloc(n_dev, sizeof(FILE *));
+  txv1_f = bs_calloc(n_dev, sizeof(FILE *));
+  rxv1_f = bs_calloc(n_dev, sizeof(FILE *));
   RSSI_f = bs_calloc(n_dev, sizeof(FILE *));
   modemrx_f = bs_calloc(n_dev, sizeof(FILE *));
 
   int fname_len = 26 + strlen(path) + strlen(p);
   for (int i = 0; i < n_dev; i++) {
-    tx_f[i] = open_file(fname_len, path, "Tx", p, i);
-    rx_f[i] = open_file(fname_len, path, "Rx", p, i);
+    txv1_f[i] = open_file(fname_len, path, "Tx", p, i);
+    rxv1_f[i] = open_file(fname_len, path, "Rx", p, i);
     RSSI_f[i] = open_file(fname_len, path, "RSSI", p, i);
     modemrx_f[i] = open_file(fname_len, path, "ModemRx", p, i);
 
     if (comp == 0) {
       if (dump_imm) {
-        setvbuf(tx_f[i], NULL, _IOLBF, 0);
-        setvbuf(rx_f[i], NULL, _IOLBF, 0);
+        setvbuf(txv1_f[i], NULL, _IOLBF, 0);
+        setvbuf(rxv1_f[i], NULL, _IOLBF, 0);
         setvbuf(RSSI_f[i], NULL, _IOLBF, 0);
         setvbuf(modemrx_f[i], NULL, _IOLBF, 0);
       }
-      dump_tx_heading(tx_f[i]);
-      dump_rx_heading(rx_f[i]);
+      dump_txv1_heading(txv1_f[i]);
+      dump_rxv1_heading(rxv1_f[i]);
       dump_RSSI_heading(RSSI_f[i]);
       dump_modemrx_heading(modemrx_f[i]);
     }
@@ -180,8 +182,8 @@ int close_dump_files() {
   if (stats != NULL) {
     if (comp) {
       for ( i = 0 ; i < n_dev; i ++) {
-        ret_error |= print_stats("Tx", i, stats[i].nbr_tx, stats[i].nbr_tx_er, tx_f[i]);
-        ret_error |= print_stats("Rx", i, stats[i].nbr_rx, stats[i].nbr_rx_er, rx_f[i]);
+        ret_error |= print_stats("Tx", i, stats[i].nbr_tx, stats[i].nbr_tx_er, txv1_f[i]);
+        ret_error |= print_stats("Rx", i, stats[i].nbr_rx, stats[i].nbr_rx_er, rxv1_f[i]);
         ret_error |= print_stats("RSSI", i, stats[i].nbr_RSSI, stats[i].nbr_RSSI_er, RSSI_f[i]);
         ret_error |= print_stats("ModemRx", i, stats[i].nbr_modemrx, stats[i].nbr_modemrx_er, modemrx_f[i]);
       }
@@ -190,23 +192,23 @@ int close_dump_files() {
     stats = NULL;
   }
 
-  if ((tx_f != NULL) && (rx_f != NULL) && (RSSI_f != NULL) && (modemrx_f != NULL)) {
+  if ((txv1_f != NULL) && (rxv1_f != NULL) && (RSSI_f != NULL) && (modemrx_f != NULL)) {
     for (i = 0; i < n_dev; i ++) {
-      if (tx_f[i] != NULL)
-        fclose(tx_f[i]);
-      if (rx_f[i] != NULL)
-        fclose(rx_f[i]);
+      if (txv1_f[i] != NULL)
+        fclose(txv1_f[i]);
+      if (rxv1_f[i] != NULL)
+        fclose(rxv1_f[i]);
       if (RSSI_f[i] != NULL)
         fclose(RSSI_f[i]);
       if (modemrx_f[i] != NULL)
         fclose(modemrx_f[i]);
     }
-    free(tx_f);
-    free(rx_f);
+    free(txv1_f);
+    free(rxv1_f);
     free(RSSI_f);
     free(modemrx_f);
-    tx_f = NULL;
-    rx_f = NULL;
+    txv1_f = NULL;
+    rxv1_f = NULL;
     RSSI_f = NULL;
     modemrx_f = NULL;
   }
@@ -254,15 +256,15 @@ void print_or_compare(FILE** file, char *produced, size_t str_size, uint dev_nbr
   }
 }
 
-void dump_tx(tx_el_t *tx, uint dev_nbr) {
-  if ( ( tx_f == NULL ) || ( tx_f[dev_nbr] == NULL ) ){
+void dump_txv1(tx_el_t *tx, uint dev_nbr) {
+  if ( ( txv1_f == NULL ) || ( txv1_f[dev_nbr] == NULL ) ){
     return;
   }
 
   stats[dev_nbr].nbr_tx++;
 
   size_t size = 1024 + tx->tx_s.packet_size*3+1;
-  p2G4_tx_t *txs = &tx->tx_s;
+  p2G4_txv2_t *txs = &tx->tx_s;
   char to_print[size];
   int printed;
   printed = snprintf(to_print, 1024,
@@ -272,9 +274,9 @@ void dump_tx(tx_el_t *tx, uint dev_nbr) {
                     "%.6f,"
                     "%"PRItime",%"PRItime","
                     "%u,",
-                    txs->start_time, txs->end_time,
+                    txs->start_tx_time, txs->end_tx_time,
                     p2G4_freq_to_d(txs->radio_params.center_freq),
-                    txs->phy_address, txs->radio_params.modulation,
+                    (uint32_t)txs->phy_address, txs->radio_params.modulation,
                     p2G4_power_to_d(txs->power_level),
                     txs->abort.abort_time, txs->abort.recheck_time,
                     txs->packet_size);
@@ -285,15 +287,21 @@ void dump_tx(tx_el_t *tx, uint dev_nbr) {
     sprintf(&to_print[printed],"%s",packetstr);
   }
 
-  print_or_compare(&tx_f[dev_nbr],
+  print_or_compare(&txv1_f[dev_nbr],
                    to_print, size, dev_nbr, "Tx",
                    &stats[dev_nbr].nbr_tx_er,
                    stats[dev_nbr].nbr_tx);
 }
 
+void dump_tx(tx_el_t *tx, uint dev_nbr){
+  if ( ( txv1_f != NULL ) && ( txv1_f[dev_nbr] != NULL ) ){
+    dump_txv1(tx, dev_nbr);
+  }
+  /* TODO: Add v2 dump */
+}
 
 void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
-  if ( ( rx_f == NULL ) || ( rx_f[dev_nbr] == NULL ) ) {
+  if ( ( rxv1_f == NULL ) || ( rxv1_f[dev_nbr] == NULL ) ) {
     return;
   }
 
@@ -344,7 +352,7 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
     sprintf(&to_print[printed],"%s",packetstr);
   }
 
-  print_or_compare(&rx_f[dev_nbr],
+  print_or_compare(&rxv1_f[dev_nbr],
                    to_print, size, dev_nbr, "Rx",
                    &stats[dev_nbr].nbr_rx_er,
                    stats[dev_nbr].nbr_rx);

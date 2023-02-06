@@ -17,17 +17,23 @@ extern "C" {
  * For each device, current/next transmission parameters and packet
  */
 typedef struct {
-  p2G4_tx_t tx_s;
+  p2G4_txv2_t tx_s;
+  bool was_v1api; /* Was this a v1 API Tx request*/
   uint8_t *packet;
 } tx_el_t;
 
+
+/* State of each device*/
+#define TXS_OFF    0 /* It is currently not transmitting */
+#define TXS_NOISE  1 /* It is currently transmitting "noise" (not the packet itself)*/
+#define TXS_PACKET 2 /* It is currently transmitting the packet itself */
 /**
  * Transmission list container
  */
 typedef struct{
   uint64_t ctr; //Counter: every time the tx list changes this counter is updated
   tx_el_t *tx_list; //Array of transmission parameters with one element per device
-  uint *used; //Array with one element per device: Is it currently transmitting or not
+  uint *used; //Array with one element per device (one of TXS_*)
 } tx_l_c_t;
 
 /**
@@ -54,7 +60,7 @@ void txl_free(void);
  * @param tx_s Transmission parameters
  * @param packet Pointer to the transmitted packet
  */
-void txl_register(uint dev_nbr, p2G4_tx_t *tx_s, uint8_t* packet);
+void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet, bool v1);
 
 /**
  * Remove a transmission from the list

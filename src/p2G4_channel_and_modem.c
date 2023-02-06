@@ -56,7 +56,7 @@ static cha_delete_f channel_delete;
 typedef void*  (*m_init_f)(int argc, char *argv[], uint dev_nbr, uint n_devs);
 typedef void   (*m_delete_f)(void *m_obj);
 typedef void   (*m_analog_rx_f)(void *m_obj, p2G4_radioparams_t *radio_params, double *OutputSNR,double *Output_RSSI_power_level, double *rx_pow, tx_l_c_t *txl_c, uint tx_nbr);
-typedef uint32_t (*m_dig_perf_sync_f)(void *m_obj, p2G4_radioparams_t *radio_params, double SNR, p2G4_tx_t* tx_s);
+typedef uint32_t (*m_dig_perf_sync_f)(void *m_obj, p2G4_radioparams_t *radio_params, double SNR, p2G4_txv2_t* tx_s);
 typedef uint32_t (*m_dig_perf_ber_f)(void *m_obj, p2G4_radioparams_t *radio_params, double SNR);
 typedef uint32_t (*m_dig_RSSI_f)(void *m_obj, p2G4_radioparams_t *radio_params, double RSSI_power_level, p2G4_rssi_power_t* RSSI);
 
