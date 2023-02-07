@@ -310,7 +310,7 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
   size_t size = 2048 + rx_st->rx_done_s.packet_size*3;
 
   char to_print[ size + 1];
-  p2G4_rx_t *req = &rx_st->rx_s;
+  p2G4_rxv2_t *req = &rx_st->rx_s;
   p2G4_rx_done_t *resp = &rx_st->rx_done_s;
   int printed;
 
@@ -327,12 +327,12 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
                     "%.6f,"
                     "%u,",
                     req->start_time, req->scan_duration,
-                    req->phy_address, req->radio_params.modulation,
+                    (uint32_t)rx_st->phy_address[0], req->radio_params.modulation,
                     p2G4_freq_to_d(req->radio_params.center_freq),
                     p2G4_power_to_d(req->antenna_gain),
                     req->sync_threshold, req->header_threshold,
                     req->pream_and_addr_duration,
-                    req->header_duration, req->bps, req->abort.abort_time, req->abort.recheck_time,
+                    req->header_duration, req->error_calc_rate, req->abort.abort_time, req->abort.recheck_time,
 
                     rx_st->tx_nbr,
                     rx_st->biterrors,

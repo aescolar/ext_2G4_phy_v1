@@ -91,7 +91,7 @@ static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
   for (int rx_d = 0 ; rx_d < args.n_devs; rx_d++) {
     rx_status_t *rx_s = &rx_a[rx_d];
     if (rx_s->state == Rx_State_Searching &&
-       (tx_s->phy_address == rx_s->rx_s.phy_address) &&
+       (tx_s->phy_address == rx_s->phy_address[0]) &&
        (tx_s->radio_params.center_freq == rx_s->rx_s.radio_params.center_freq) &&
        (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
            (rx_s->rx_s.radio_params.modulation & P2G4_MOD_SIMILAR_MASK))
@@ -264,8 +264,8 @@ static void f_rx_found(uint d){
     rx_status->sync_end    = tx_s->start_packet_time + rx_status->rx_s.pream_and_addr_duration - 1;
     rx_status->header_end  = rx_status->sync_end + rx_status->rx_s.header_duration;
     rx_status->payload_end = tx_s->end_packet_time;
-    bs_time_t chopped_preamble = current_time - tx_s->start_packet_time; /*microseconds of preamble not transmitted */
-    rx_status->biterrors = chopped_preamble*rx_status->rx_s.bps/1e6;
+    rx_status->biterrors = 0;
+    rx_status->rx_done_s.phy_address = tx_s->phy_address;
     fq_add(current_time, Rx_Sync, d);
     return;
   }
@@ -568,39 +568,79 @@ static void prepare_RSSI(uint d){
   fq_add(RSSI_s.meas_time, RSSI_Meas, d);
 }
 
-static void prepare_rx(uint d){
-  p2G4_rx_t rx_s;
+static void map_rxv1_to_rxv2(p2G4_rxv2_t *rx_v2_s, p2G4_rx_t *rx_v1_s){
+  rx_v2_s->start_time    = rx_v1_s->start_time;
+  rx_v2_s->scan_duration = rx_v1_s->scan_duration;
+  rx_v2_s->error_calc_rate = rx_v1_s->bps;
+  rx_v2_s->antenna_gain  = rx_v1_s->antenna_gain;
+  rx_v2_s->pream_and_addr_duration  = rx_v1_s->pream_and_addr_duration;
+  rx_v2_s->header_duration  = rx_v1_s->header_duration;
+  rx_v2_s->acceptable_pre_truncation = 0;
+  rx_v2_s->preamble_sync_threshold = rx_v1_s->sync_threshold;
+  rx_v2_s->addr_sync_threshold = rx_v1_s->sync_threshold;
+  rx_v2_s->sync_threshold = rx_v1_s->sync_threshold;
+  rx_v2_s->header_threshold = rx_v1_s->header_threshold;
+  rx_v2_s->resp_type = 0;
+  rx_v2_s->n_addr = 1;
+  memcpy(&rx_v2_s->radio_params, &rx_v1_s->radio_params, sizeof(p2G4_radioparams_t));
+  memcpy(&rx_v2_s->abort, &rx_v1_s->abort, sizeof(p2G4_abort_t));
+}
 
-  p2G4_phy_get(d, &rx_s, sizeof(p2G4_rx_t));
+static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
+  PAST_CHECK(rxv2_s->start_time, d, "Rx");
 
-  PAST_CHECK(rx_s.start_time, d, "Rx");
-
-  check_valid_abort(&rx_s.abort, rx_s.start_time , "Rx", d);
+  check_valid_abort(&rxv2_s->abort, rxv2_s->start_time , "Rx", d);
 
   bs_trace_raw_time(8,"Device %u wants to Rx in %"PRItime " (abort,recheck at %"PRItime ",%"PRItime ")\n",
-                    d, rx_s.start_time, rx_s.abort.abort_time, rx_s.abort.recheck_time);
+                    d, rxv2_s->start_time, rxv2_s->abort.abort_time, rxv2_s->abort.recheck_time);
 
   //Initialize the reception status
-  memcpy(&rx_a[d].rx_s, &rx_s, sizeof(p2G4_rx_t));
+  memcpy(&rx_a[d].rx_s, rxv2_s, sizeof(p2G4_rxv2_t));
   rx_a[d].scan_end = rx_a[d].rx_s.start_time + rx_a[d].rx_s.scan_duration - 1;
   rx_a[d].sync_end = 0;
   rx_a[d].header_end = 0;
   rx_a[d].payload_end = 0;
   rx_a[d].tx_nbr = -1;
   rx_a[d].biterrors = 0;
-  memset(&rx_a[d].rx_done_s, 0, sizeof(p2G4_rx_done_t));
-  if ( rx_s.abort.abort_time < rx_a[d].scan_end ) {
-    rx_a[d].scan_end = rx_s.abort.abort_time - 1;
+  memset(&rx_a[d].rx_done_s, 0, sizeof(p2G4_rxv2_done_t));
+  if ( rxv2_s->abort.abort_time < rx_a[d].scan_end ) {
+    rx_a[d].scan_end = rxv2_s->abort.abort_time - 1;
   }
-  if (rx_s.bps % 1000000 != 0) {
+  if (rxv2_s->error_calc_rate % 1000000 != 0) {
     bs_trace_error_time_line("The device %u requested a reception with a rate "
                              "of %u bps, but only multiples of 1Mbps are "
                              "supported so far\n",
-                             d, rx_s.bps);
+                             d, rxv2_s->error_calc_rate);
   }
-  rx_a[d].bpus = rx_s.bps/1000000;
+  rx_a[d].bpus = rxv2_s->error_calc_rate/1000000;
 
-  fq_add(rx_s.start_time, Rx_Search, d);
+  fq_add(rxv2_s->start_time, Rx_Search, d);
+}
+
+static void prepare_rxv1(uint d){
+  p2G4_rx_t rxv1_s;
+  p2G4_rxv2_t rxv2_s;
+
+  p2G4_phy_get(d, &rxv1_s, sizeof(p2G4_rx_t));
+  map_rxv1_to_rxv2(&rxv2_s, &rxv1_s);
+  rx_a[d].phy_address[0] = rxv1_s.phy_address;
+
+  prepare_rx_common(d, &rxv2_s);
+}
+
+static void prepare_rxv2(uint d){
+  p2G4_rxv2_t rxv2_s;
+
+  p2G4_phy_get(d, &rxv2_s, sizeof(p2G4_rxv2_t));
+
+  if ( rxv2_s.n_addr > P2G4_RXV2_MAX_ADDRESSES ) {
+    bs_trace_error_time_line("Device %u: Attempting to Rx w more than the allowed number of Rx addresses,"
+        "%i > %i\n",d, rxv2_s.n_addr, P2G4_RXV2_MAX_ADDRESSES);
+  }
+
+  p2G4_phy_get(d, rx_a[d].phy_address, rxv2_s.n_addr*sizeof(p2G4_address_t));
+
+  prepare_rx_common(d, &rxv2_s);
 }
 
 static void p2G4_handle_next_request(uint d) {
@@ -630,14 +670,16 @@ static void p2G4_handle_next_request(uint d) {
       prepare_RSSI(d);
       break;
     case P2G4_MSG_RX:
-      prepare_rx(d);
+      prepare_rxv1(d);
+      break;
+    case P2G4_MSG_RXV2:
+      prepare_rxv2(d);
       break;
     default:
       bs_trace_error_time_line("The device %u has violated the protocol (%u)\n",d, header);
       break;
   }
 }
-
 
 uint8_t p2G4_main_clean_up(){
   int return_error;

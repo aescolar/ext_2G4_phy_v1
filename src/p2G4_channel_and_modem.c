@@ -247,7 +247,7 @@ static inline void combine_SNR(rec_status_t *rx_status ) {
  * Return the number of biterrors while receiving this microsecond of the packet sent by device <tx_nbr>
  * and received by device <rx_nbr>
  */
-uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rx_t *rx_s , bs_time_t current_time){
+uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rxv2_t *rx_s , bs_time_t current_time){
 
   rec_status_t *status = &rec_status[rx_nbr];
 
@@ -270,7 +270,7 @@ uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rx_t *rx_s , 
 
 
   uint bit_errors = 0;
-  for (uint ctr = 0; ctr < rx_s->bps/1000000 ; ctr++){
+  for (uint ctr = 0; ctr < rx_s->error_calc_rate/1000000 ; ctr++){
     bit_errors += bs_random_Bern(status->BER);
   }
   return bit_errors;
@@ -279,7 +279,7 @@ uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rx_t *rx_s , 
 /**
  * Is the packet sent by device <tx_nbr> correctly synchronized (not accounting for bit errors) by the receiver <rx_nbr>
  */
-uint chm_is_packet_synched(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rx_t *rx, bs_time_t current_time){
+uint chm_is_packet_synched(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rxv2_t *rx, bs_time_t current_time){
 
   rec_status_t *rec_s = &rec_status[rx_nbr];
 

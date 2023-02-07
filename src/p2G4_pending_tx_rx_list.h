@@ -120,11 +120,12 @@ typedef struct {
   bs_time_t sync_end; //Last us (included) in which the preamble + address ends
   bs_time_t header_end; //Last us (included) in which the header ends
   bs_time_t payload_end; //Last us (included) in which the payload ends
-  p2G4_rx_t rx_s; //Reception request parameters
+  p2G4_rxv2_t rx_s; //Reception request parameters
   p2G4_rx_done_t rx_done_s; //Response message (being prepared)
   int tx_nbr; //If we found a fitting Tx, which is its device number
   uint biterrors;
   rx_state_t state;
+  p2G4_address_t phy_address[16];
 } rx_status_t;
 
 #ifdef __cplusplus
