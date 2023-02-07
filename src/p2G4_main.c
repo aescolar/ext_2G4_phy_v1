@@ -260,11 +260,12 @@ static void f_rx_found(uint d){
 
   uint tx_d = rx_status->tx_nbr;
   if ( chm_is_packet_synched( &tx_l_c, tx_d, d,  &rx_status->rx_s, current_time ) ) {
-    /*TODO: Fix timings relative to packet start not current time*/
-    rx_status->sync_end    = current_time + rx_status->rx_s.pream_and_addr_duration - 1;
+    p2G4_txv2_t *tx_s = &tx_l_c.tx_list[tx_d].tx_s;
+    rx_status->sync_end    = tx_s->start_packet_time + rx_status->rx_s.pream_and_addr_duration - 1;
     rx_status->header_end  = rx_status->sync_end + rx_status->rx_s.header_duration;
-    rx_status->payload_end = tx_l_c.tx_list[tx_d].tx_s.end_packet_time;
-    rx_status->biterrors = 0;
+    rx_status->payload_end = tx_s->end_packet_time;
+    bs_time_t chopped_preamble = current_time - tx_s->start_packet_time; /*microseconds of preamble not transmitted */
+    rx_status->biterrors = chopped_preamble*rx_status->rx_s.bps/1e6;
     fq_add(current_time, Rx_Sync, d);
     return;
   }
