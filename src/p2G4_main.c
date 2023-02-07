@@ -96,6 +96,7 @@ static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
        (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
            (rx_s->rx_s.radio_params.modulation & P2G4_MOD_SIMILAR_MASK))
     {
+      //TODO: For Rxv2, add check/if for not too many us into preamble
       rx_s->tx_nbr = tx_d;
       rx_s->state = Rx_State_NotSearching;
       fq_add(current_time, Rx_Found, rx_d);
@@ -103,24 +104,60 @@ static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
   }
 }
 
+static void tx_start_packet_common(p2G4_txv2_t* tx_s, uint d){
+  txl_start_packet(d);
+  bs_trace_raw_time(8,"Tx (d %u) packet start\n", d);
+  find_and_activate_rx(tx_s, d);
+}
+
+static void tx_schedule_next_event(p2G4_txv2_t* tx_s, uint d){
+  bs_time_t TxEndt, NextTime;
+  bs_time_t Packet_start_time;
+  bs_time_t Packet_end_time = TIME_NEVER; /*Must be later than Packet_start_time*/
+
+  if ( (tx_l_c.used[d] & TXS_PACKET_ONGOING) == 0){
+    Packet_start_time = tx_s->start_packet_time;
+  } else {
+    /* Packet already started => no need to schedule another start */
+    Packet_start_time = TIME_NEVER;
+
+    if (tx_l_c.used[d] & TXS_PACKET_ENDED){
+      /* Packet already ended */
+      Packet_end_time = TIME_NEVER;
+    } else {
+      Packet_end_time = tx_s->end_packet_time;
+    }
+  }
+
+  TxEndt = BS_MIN(tx_s->end_tx_time, tx_s->abort.abort_time);
+  NextTime = BS_MIN(BS_MIN(Packet_start_time, TxEndt),Packet_end_time);
+
+  if ( NextTime >= tx_s->abort.recheck_time ){
+    fq_add(tx_s->abort.recheck_time, Tx_Abort_Reeval, d);
+  } else if ( NextTime == Packet_start_time ) {
+    fq_add(TxEndt, Tx_Packet_Start, d);
+  } else if ( NextTime == TxEndt ) {
+    // If end_packet_time and end_tx_time are the same we just end
+    fq_add(TxEndt, Tx_End, d);
+  } else {
+    fq_add(TxEndt, Tx_Packet_End, d);
+  }
+}
 
 static void f_tx_start(uint d) {
   p2G4_txv2_t* tx_s;
-
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
-  txl_activate(d);
+  txl_start_tx(d);
   bs_trace_raw_time(8,"Starting Tx for device %u\n", d);
 
-  find_and_activate_rx(tx_s, d);
-
-  bs_time_t TxEndt;
-  TxEndt = BS_MIN(tx_s->end_tx_time, tx_s->abort.abort_time);
-  if ( TxEndt < tx_s->abort.recheck_time ) {
-    fq_add(TxEndt, Tx_End, d);
-  } else {
-    fq_add(tx_s->abort.recheck_time, Tx_Abort_Reeval, d);
+  if ( current_time >= tx_s->start_packet_time) {
+    tx_start_packet_common(tx_s, d);
+    /* Technically we could let another event be scheduled,
+     * but this saves a bit of time for the most common scenario */
   }
+
+  tx_schedule_next_event(tx_s, d);
 }
 
 static void f_tx_abort_reeval(uint d){
@@ -131,14 +168,26 @@ static void f_tx_abort_reeval(uint d){
   if (pick_and_validate_abort(d, &(tx_s->abort), "Tx"))
     return;
 
-  bs_time_t tx_end_t;
-  tx_end_t = BS_MIN(tx_s->end_tx_time, tx_s->abort.abort_time);
-  if ( tx_end_t < tx_s->abort.recheck_time ) {
-    fq_add(tx_end_t, Tx_End, d);
-  } else {
-    fq_add(tx_s->abort.recheck_time, Tx_Abort_Reeval, d);
-  }
+  tx_schedule_next_event(tx_s, d);
 }
+
+static void f_tx_packet_start(uint d){
+  p2G4_txv2_t* tx_s;
+  tx_s = &tx_l_c.tx_list[d].tx_s;
+
+  tx_start_packet_common(tx_s, d);
+  tx_schedule_next_event(tx_s, d);
+}
+
+static void f_tx_packet_end(uint d){
+  p2G4_txv2_t* tx_s;
+  tx_s = &tx_l_c.tx_list[d].tx_s;
+
+  bs_trace_raw_time(8,"Tx (d %u) packet end\n", d);
+  txl_end_packet(d);
+  tx_schedule_next_event(tx_s, d);
+}
+
 
 static void f_RSSI_meas(uint d) {
   p2G4_rssi_done_t RSSI_meas;
@@ -211,6 +260,7 @@ static void f_rx_found(uint d){
 
   uint tx_d = rx_status->tx_nbr;
   if ( chm_is_packet_synched( &tx_l_c, tx_d, d,  &rx_status->rx_s, current_time ) ) {
+    /*TODO: Fix timings relative to packet start not current time*/
     rx_status->sync_end    = current_time + rx_status->rx_s.pream_and_addr_duration - 1;
     rx_status->header_end  = rx_status->sync_end + rx_status->rx_s.header_duration;
     rx_status->payload_end = tx_l_c.tx_list[tx_d].tx_s.end_packet_time;
@@ -251,7 +301,7 @@ static void f_rx_sync(uint d){
     return;
   }
 
-  if ( tx_l_c.used[rx_a[d].tx_nbr] != TXS_PACKET ) { //if the Tx aborted
+  if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     //An abort of the Tx during a sync results in the sync being lost always (even if we are just at the end of the syncword)
     fq_add(current_time + 1, Rx_Search, d);
     return;
@@ -325,7 +375,7 @@ static void f_rx_header(uint d){
     }
   }
 
-  if ( tx_l_c.used[rx_a[d].tx_nbr] != TXS_PACKET ) { //if the Tx aborted
+  if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     rx_a[d].biterrors += rx_a[d].bpus;
   } else {
     rx_a[d].biterrors += chm_bit_errors(&tx_l_c, rx_a[d].tx_nbr, d, &rx_a[d].rx_s, current_time);
@@ -359,7 +409,7 @@ static void f_rx_payload(uint d){
     }
   }
 
-  if ( tx_l_c.used[rx_a[d].tx_nbr] != TXS_PACKET ) { //if the Tx aborted
+  if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     rx_a[d].biterrors += rx_a[d].bpus;
   } else {
     rx_a[d].biterrors += chm_bit_errors(&tx_l_c, rx_a[d].tx_nbr, d, &rx_a[d].rx_s, current_time);
@@ -447,33 +497,59 @@ static void map_txv1_to_txv2(p2G4_txv2_t *tx_v2_s, p2G4_tx_t *tx_v1_s){
   memcpy(&tx_v2_s->abort, &tx_v1_s->abort, sizeof(p2G4_abort_t));
 }
 
-static void prepare_txv1(uint d){
-  p2G4_tx_t tx_s;
-  p2G4_txv2_t tx_v2_s;
+static void prepare_tx_common(uint d, p2G4_txv2_t *tx_s){
   uint8_t *data = NULL;
+
+  if ( tx_s->packet_size > 0 ){
+    data = bs_malloc(tx_s->packet_size);
+    p2G4_phy_get(d, data, tx_s->packet_size);
+  }
+
+  PAST_CHECK(tx_s->start_tx_time, d, "Tx");
+
+  if ( tx_s->start_tx_time >= tx_s->end_tx_time ) {
+    bs_trace_error_time_line("Device %u wants a tx end time <= tx start time (%"PRItime" <= %"PRItime")\n",d, tx_s->end_tx_time, tx_s->start_tx_time);
+  }
+  if ( tx_s->start_packet_time >= tx_s->end_tx_time ) {
+    bs_trace_error_time_line("Device %u wants a tx end time <= tx packet start time (%"PRItime" <= %"PRItime")\n",d, tx_s->end_tx_time, tx_s->start_packet_time);
+  }
+  if ( tx_s->start_packet_time >= tx_s->end_packet_time ) {
+    bs_trace_error_time_line("Device %u wants a packet end time <= tx packet start time (%"PRItime" <= %"PRItime")\n",d, tx_s->end_packet_time, tx_s->start_packet_time);
+  }
+
+  check_valid_abort(&tx_s->abort, tx_s->start_tx_time , "Tx", d);
+
+  bs_trace_raw_time(8,"Device %u wants to Tx in: %"PRItime "-%"PRItime ""
+                    " (packet: %"PRItime "-%"PRItime ")"
+                    " (abort,recheck at %"PRItime ",%"PRItime ")"
+                    "\n",
+                    d, tx_s->start_tx_time, tx_s->end_tx_time,
+                    tx_s->start_packet_time, tx_s->end_packet_time,
+                    tx_s->abort.abort_time, tx_s->abort.recheck_time);
+
+  txl_register(d, tx_s, data);
+
+  fq_add(tx_s->start_tx_time, Tx_Start, d);
+  /* Note: It is irrelevant if an ideal packet would have started before for the Tx side,
+   * until the Tx starts nothing happens */
+}
+
+static void prepare_txv2(uint d){
+  p2G4_txv2_t tx_s;
 
   p2G4_phy_get(d, &tx_s, sizeof(tx_s));
 
-  if ( tx_s.packet_size > 0 ){
-    data = bs_malloc(tx_s.packet_size);
-    p2G4_phy_get(d, data, tx_s.packet_size);
-  }
+  prepare_tx_common(d, &tx_s);
+}
 
-  PAST_CHECK(tx_s.start_time, d, "Tx");
+static void prepare_txv1(uint d){
+  p2G4_tx_t tx_s;
+  p2G4_txv2_t tx_v2_s;
 
-  if ( tx_s.start_time >= tx_s.end_time ) {
-    bs_trace_error_time_line("Device %u wants a tx end time <= tx start time (%"PRItime" <= %"PRItime")\n",d, tx_s.end_time, tx_s.start_time);
-  }
-
-  check_valid_abort(&tx_s.abort, tx_s.start_time , "Tx", d);
-
-  bs_trace_raw_time(8,"Device %u wants to Tx in %"PRItime " (abort,recheck at %"PRItime ",%"PRItime ")\n",
-                    d, tx_s.start_time, tx_s.abort.abort_time, tx_s.abort.recheck_time);
-
+  p2G4_phy_get(d, &tx_s, sizeof(tx_s));
   map_txv1_to_txv2(&tx_v2_s, &tx_s);
-  txl_register(d, &tx_v2_s, data, true/*v1 API*/);
 
-  fq_add(tx_s.start_time, Tx_Start, d);
+  prepare_tx_common(d, &tx_v2_s);
 }
 
 static void prepare_RSSI(uint d){
@@ -546,6 +622,9 @@ static void p2G4_handle_next_request(uint d) {
     case P2G4_MSG_TX:
       prepare_txv1(d);
       break;
+    case P2G4_MSG_TXV2:
+      prepare_txv2(d);
+      break;
     case P2G4_MSG_RSSIMEAS:
       prepare_RSSI(d);
       break;
@@ -597,7 +676,6 @@ int main(int argc, char *argv[]) {
 
   fq_init(args.n_devs);
   fq_register_func(Wait_Done,      f_wait_done      );
-  fq_register_func(Tx_End,         f_tx_end         );
   fq_register_func(RSSI_Meas,      f_RSSI_meas      );
   fq_register_func(Rx_Search,      f_rx_search      );
   fq_register_func(Rx_Found,       f_rx_found       );
@@ -606,6 +684,9 @@ int main(int argc, char *argv[]) {
   fq_register_func(Rx_Payload,     f_rx_payload     );
   fq_register_func(Tx_Abort_Reeval,f_tx_abort_reeval);
   fq_register_func(Tx_Start,       f_tx_start       );
+  fq_register_func(Tx_Packet_Start,f_tx_packet_start);
+  fq_register_func(Tx_Packet_End,  f_tx_packet_end  );
+  fq_register_func(Tx_End,         f_tx_end         );
 
   bs_random_init(args.rseed);
   txl_create(args.n_devs);

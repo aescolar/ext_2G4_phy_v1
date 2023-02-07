@@ -21,6 +21,7 @@ typedef enum {
   None = 0,
   Wait_Done,
   Tx_End,
+  Tx_Packet_End,
   RSSI_Meas,
   Rx_Found,
   Rx_Sync,
@@ -28,6 +29,7 @@ typedef enum {
   Rx_Payload,
   Tx_Abort_Reeval,
   Tx_Start,
+  Tx_Packet_Start,
   Rx_Search,
   N_funcs //Minor issue: one too many
 } f_index_t;

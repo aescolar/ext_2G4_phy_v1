@@ -39,19 +39,35 @@ void txl_free(void){
  * Register a tx which has just been initiated by a device
  * Note that the tx itself does not start yet (when that happens txl_activate() should be called)
  */
-void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet, bool v1){
+void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet){
   tx_l_c.used[d] = TXS_OFF;
   memcpy(&(tx_list[d].tx_s), tx_s, sizeof(p2G4_txv2_t) );
   tx_list[d].packet = packet;
-  tx_list[d].was_v1api = v1;
 }
 
 /**
  * Activate a given tx in the tx_list_c (we have reached the begining of the Tx)
  */
-void txl_activate(uint d){
-  tx_l_c.used[d] = TXS_PACKET;
+void txl_start_tx(uint d){
+  tx_l_c.used[d] = TXS_NOISE;
   tx_l_c.ctr++;
+}
+
+/**
+ * Activate a given tx in the tx_list_c (we have reached the begining of the Tx)
+ */
+void txl_start_packet(uint d){
+  tx_l_c.used[d] |= TXS_PACKET_ONGOING | TXS_PACKET_STARTED;
+  /*Note: No need to update the counter, as the interference level is the same with or without packet*/
+}
+
+/**
+ * Mark that the packet has ended (noise may continue)
+ */
+void txl_end_packet(uint d){
+  tx_l_c.used[d] |= TXS_PACKET_ENDED;
+  tx_l_c.used[d] &= ~TXS_PACKET_ONGOING;
+  /*Note: No need to update the counter, as the interference level is the same with or without packet*/
 }
 
 /**

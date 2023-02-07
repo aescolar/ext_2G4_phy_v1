@@ -18,15 +18,16 @@ extern "C" {
  */
 typedef struct {
   p2G4_txv2_t tx_s;
-  bool was_v1api; /* Was this a v1 API Tx request*/
   uint8_t *packet;
 } tx_el_t;
 
 
-/* State of each device*/
-#define TXS_OFF    0 /* It is currently not transmitting */
-#define TXS_NOISE  1 /* It is currently transmitting "noise" (not the packet itself)*/
-#define TXS_PACKET 2 /* It is currently transmitting the packet itself */
+/* State of each device (bitmask)*/
+#define TXS_OFF            0 /* It is currently not transmitting */
+#define TXS_NOISE          1 /* It is currently transmitting at least "noise" */
+#define TXS_PACKET_ONGOING 2 /* It is currently transmitting the packet itself */
+#define TXS_PACKET_STARTED 4 /* It did already start transmitting the packet*/
+#define TXS_PACKET_ENDED   8 /* It did already end the transmitting of this packet*/
 /**
  * Transmission list container
  */
@@ -60,7 +61,7 @@ void txl_free(void);
  * @param tx_s Transmission parameters
  * @param packet Pointer to the transmitted packet
  */
-void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet, bool v1);
+void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet);
 
 /**
  * Remove a transmission from the list
@@ -77,7 +78,30 @@ void txl_clear(uint dev_nbr);
  *
  * @param dev_nbr Device which has just started transmitting
  */
-void txl_activate(uint dev_nbr);
+void txl_start_tx(uint dev_nbr);
+
+/**
+ * Set a transmission as actively transmitting the packet
+ *
+ * Note that txl_register() & txl_start_tx
+ * must be called first to record the actual
+ * transmission parameters and packet
+ *
+ * @param dev_nbr Device which has just started transmitting its packet
+ */
+void txl_start_packet(uint dev_nbr);
+
+
+/**
+ * Mark that the packet has ended (noise may continue)
+ *
+ * Note that txl_register() & txl_start_tx
+ * must be called first to record the actual
+ * transmission parameters and packet
+ *
+ * @param dev_nbr Device which has just ended transmitting its packet
+ */
+void txl_end_packet(uint dev_nbr);
 
 /**
  * Reception state
