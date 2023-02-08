@@ -300,7 +300,7 @@ void dump_tx(tx_el_t *tx, uint dev_nbr){
   /* TODO: Add v2 dump */
 }
 
-void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
+void dump_rxv1(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
   if ( ( rxv1_f == NULL ) || ( rxv1_f[dev_nbr] == NULL ) ) {
     return;
   }
@@ -311,7 +311,7 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
 
   char to_print[ size + 1];
   p2G4_rxv2_t *req = &rx_st->rx_s;
-  p2G4_rx_done_t *resp = &rx_st->rx_done_s;
+  p2G4_rxv2_done_t *resp = &rx_st->rx_done_s;
   int printed;
 
   printed = snprintf(to_print, 2048,
@@ -356,6 +356,13 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
                    to_print, size, dev_nbr, "Rx",
                    &stats[dev_nbr].nbr_rx_er,
                    stats[dev_nbr].nbr_rx);
+}
+
+void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr) {
+  if ( ( rxv1_f == NULL ) || ( rxv1_f[dev_nbr] == NULL ) ) {
+    dump_rxv1(rx_st, packet, dev_nbr);
+  }
+  /* TODO: Add v2 dump */
 }
 
 void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint dev_nbr){

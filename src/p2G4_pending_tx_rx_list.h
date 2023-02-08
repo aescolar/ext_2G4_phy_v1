@@ -103,6 +103,8 @@ void txl_start_packet(uint dev_nbr);
  */
 void txl_end_packet(uint dev_nbr);
 
+int txl_get_max_tx_nbr(void);
+
 /**
  * Reception state
  */
@@ -121,11 +123,12 @@ typedef struct {
   bs_time_t header_end; //Last us (included) in which the header ends
   bs_time_t payload_end; //Last us (included) in which the payload ends
   p2G4_rxv2_t rx_s; //Reception request parameters
-  p2G4_rx_done_t rx_done_s; //Response message (being prepared)
+  p2G4_rxv2_done_t rx_done_s; //Response message (being prepared)
   int tx_nbr; //If we found a fitting Tx, which is its device number
   uint biterrors;
   rx_state_t state;
   p2G4_address_t phy_address[16];
+  bool v1_request;
 } rx_status_t;
 
 #ifdef __cplusplus

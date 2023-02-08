@@ -17,6 +17,7 @@
 #include "p2G4_func_queue.h"
 #include "p2G4_pending_tx_rx_list.h"
 #include "p2G4_com.h"
+#include "p2G4_v1_v2_remap.h"
 
 static bs_time_t current_time = 0;
 static int nbr_active_devs; //How many devices are still active (devices may disconnect during the simulation)
@@ -84,19 +85,44 @@ static int pick_and_validate_abort(uint d, p2G4_abort_t *ab, const char* type) {
 }
 
 /**
+ * Check if this Tx and Rx match
+ * and return true if found, false otherwise
+ */
+static bool tx_and_rx_match(const p2G4_txv2_t *tx_s, rx_status_t *rx_st)
+{
+  if ((tx_s->radio_params.center_freq == rx_st->rx_s.radio_params.center_freq) &&
+     (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
+         (rx_st->rx_s.radio_params.modulation & P2G4_MOD_SIMILAR_MASK) )
+  {
+    bs_time_t chopped_preamble = current_time - tx_s->start_packet_time; /*microseconds of preamble not transmitted */
+
+    if (chopped_preamble > rx_st->rx_s.acceptable_pre_truncation) {
+      return false; //we already lost too much preamble, we can't sync
+    }
+
+    /* Let's check if it is any of the addresses the Rx searches for */
+    p2G4_address_t *rx_addr = rx_st->phy_address;
+    p2G4_address_t tx_addr = tx_s->phy_address;
+
+    for (int i = 0; i < rx_st->rx_s.n_addr; i++) {
+      if ( tx_addr == rx_addr[i] ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * All devices which may be able to receive this transmission are moved
  * to the Rx_Found state, where they may start synchronizing to it
  */
 static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
   for (int rx_d = 0 ; rx_d < args.n_devs; rx_d++) {
     rx_status_t *rx_s = &rx_a[rx_d];
-    if (rx_s->state == Rx_State_Searching &&
-       (tx_s->phy_address == rx_s->phy_address[0]) &&
-       (tx_s->radio_params.center_freq == rx_s->rx_s.radio_params.center_freq) &&
-       (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
-           (rx_s->rx_s.radio_params.modulation & P2G4_MOD_SIMILAR_MASK))
-    {
-      //TODO: For Rxv2, add check/if for not too many us into preamble
+    if ( rx_s->state == Rx_State_Searching &&
+        tx_and_rx_match(tx_s, rx_s) ) {
       rx_s->tx_nbr = tx_d;
       rx_s->state = Rx_State_NotSearching;
       fq_add(current_time, Rx_Found, rx_d);
@@ -210,56 +236,133 @@ static void rx_do_RSSI(uint d) {
   chm_RSSImeas(&tx_l_c, &RSSI_s, &rx_a[d].rx_done_s.rssi, d, current_time);
 }
 
-static inline void rx_enqueue_search_end(uint d){
+/**
+ * Schedule an Rx_Search_reeval event when the search scan ends or
+ * the next check of the abort reeval
+ */
+static inline void rx_enqueue_search_reeval(uint d){
   rx_status_t *rx_status = &rx_a[d];
 
   rx_status->state = Rx_State_Searching;
   bs_time_t end_time = BS_MIN((rx_status->scan_end + 1), rx_status->rx_s.abort.recheck_time);
-  fq_add(end_time, Rx_Search, d);
+  fq_add(end_time, Rx_Search_reeval, d);
   return;
 }
 
-static void f_rx_search(uint d) {
-  rx_status_t *rx_status;
-  rx_status = &rx_a[d];
+/**
+ * Find if there is a fitting tx for this rx attempt
+ * if there is not, return -1
+ * if there is, return the device number
+ */
+static int find_fitting_tx(rx_status_t *rx_s){
+  register uint *used = tx_l_c.used;
+  int max_tx = txl_get_max_tx_nbr();
+  for (int i = 0 ; i <= max_tx; i++) {
+    if ((used[i] & TXS_PACKET_ONGOING) &&
+        tx_and_rx_match(&tx_l_c.tx_list[i].tx_s, rx_s) )
+    {
+      return i;
+    }
+  }
+  return -1;
+}
 
-  if ( current_time >= rx_status->rx_s.abort.recheck_time ) {
+static void f_rx_found(uint d);
+
+static void rx_possible_abort_recheck(uint d, rx_status_t *rx_st, bool scanning){
+  if ( current_time >= rx_st->rx_s.abort.recheck_time ) {
     if ( pick_and_validate_abort(d, &(rx_a[d].rx_s.abort), "Rx") != 0 ){
       return;
     }
-    if ( rx_status->rx_s.abort.abort_time < rx_status->scan_end ) {
-        rx_status->scan_end = rx_status->rx_s.abort.abort_time - 1;
+    if (scanning && (rx_st->rx_s.abort.abort_time < rx_st->scan_end) ) {
+        rx_st->scan_end = rx_st->rx_s.abort.abort_time - 1;
     }
   }
+}
 
-  if ( current_time > rx_status->scan_end ) {
-    rx_status->rx_done_s.packet_size = 0;
-    rx_status->rx_done_s.rx_time_stamp = current_time;
-    rx_status->rx_done_s.status = P2G4_RXSTATUS_NOSYNC;
-    if ( rx_status->rx_s.abort.abort_time != current_time ) { //if we are not aborting
-      rx_do_RSSI(d);
-    }
+static void f_rx_search_start(uint d) {
+  int tx_d;
+  rx_status_t *rx_status;
+  rx_status = &rx_a[d];
 
-    bs_trace_raw_time(8,"RxDone (NoSync during Rx_search) for device %u\n", d);
+  rx_possible_abort_recheck(d, rx_status, true);
 
+  /* Let's check for possible ongoing transmissions we may still catch */
+  tx_d = find_fitting_tx(rx_status);
+
+  if (tx_d >= 0) {
+    rx_status->tx_nbr = tx_d;
     rx_status->state = Rx_State_NotSearching;
-    rx_status->rx_done_s.end_time = current_time;
-
-    p2G4_phy_resp_rx(d, &rx_status->rx_done_s);
-    dump_rx(&rx_a[d],NULL,d);
-    p2G4_handle_next_request(d);
+    /* Let's call it directly and save an event */
+    f_rx_found(d);
     return;
   }
 
-  rx_enqueue_search_end(d);
+  /* If we haven't found anything, we just */
+  rx_enqueue_search_reeval(d);
+  return;
+}
+
+static void rx_respond_done(uint d, rx_status_t *rx_status) {
+  if ( rx_status->v1_request ) {
+    p2G4_rx_done_t rx_done_v1;
+    map_rxv2_resp_to_rxv1(&rx_done_v1, &rx_status->rx_done_s);
+    p2G4_phy_resp_rx(d, &rx_done_v1);
+  } else {
+    p2G4_phy_resp_rxv2(d, &rx_status->rx_done_s);
+  }
+}
+
+static void rx_resp_addr_found(uint d,  rx_status_t *rx_status, uint8_t *packet) {
+  if ( rx_status->v1_request ) {
+    p2G4_rx_done_t rx_done_v1;
+    map_rxv2_resp_to_rxv1(&rx_done_v1, &rx_status->rx_done_s);
+    p2G4_phy_resp_rx_addr_found(d, &rx_done_v1, packet);
+  } else {
+    p2G4_phy_resp_rxv2_addr_found(d, &rx_status->rx_done_s, packet);
+  }
+}
+
+static void rx_scan_ended(uint d, rx_status_t *rx_status, const char * const state){
+  rx_status->rx_done_s.packet_size = 0;
+  rx_status->rx_done_s.rx_time_stamp = current_time;
+  rx_status->rx_done_s.status = P2G4_RXSTATUS_NOSYNC;
+  if ( rx_status->rx_s.abort.abort_time != current_time ) { //if we are not aborting
+    rx_do_RSSI(d);
+  }
+
+  bs_trace_raw_time(8,"RxDone (NoSync during %s) for device %u\n", d, state);
+
+  rx_status->state = Rx_State_NotSearching;
+  rx_status->rx_done_s.end_time = current_time;
+
+  rx_respond_done(d, rx_status);
+  dump_rx(&rx_a[d],NULL,d);
+  p2G4_handle_next_request(d);
+}
+
+static void f_rx_search_reeval(uint d) {
+  rx_status_t *rx_status;
+  rx_status = &rx_a[d];
+
+  rx_possible_abort_recheck(d, rx_status, true);
+
+  if ( current_time > rx_status->scan_end ) {
+    rx_scan_ended(d, rx_status, "Rx Seach");
+    return;
+  }
+
+  /* If we havent found anything yet, we just continue */
+  rx_enqueue_search_reeval(d);
   return;
 }
 
 static void f_rx_found(uint d){
   rx_status_t *rx_status = &rx_a[d];
-
   uint tx_d = rx_status->tx_nbr;
-  if ( chm_is_packet_synched( &tx_l_c, tx_d, d,  &rx_status->rx_s, current_time ) ) {
+
+  if ( chm_is_packet_synched( &tx_l_c, tx_d, d,  &rx_status->rx_s, current_time ) )
+  {
     p2G4_txv2_t *tx_s = &tx_l_c.tx_list[tx_d].tx_s;
     rx_status->sync_end    = tx_s->start_packet_time + rx_status->rx_s.pream_and_addr_duration - 1;
     rx_status->header_end  = rx_status->sync_end + rx_status->rx_s.header_duration;
@@ -270,53 +373,34 @@ static void f_rx_found(uint d){
     return;
   }
 
-  rx_enqueue_search_end(d);
+  rx_enqueue_search_reeval(d);
   return;
 }
 
 static void f_rx_sync(uint d){
-  if ( current_time >= rx_a[d].rx_s.abort.recheck_time ) {
-    if ( pick_and_validate_abort(d, &(rx_a[d].rx_s.abort), "Rx") != 0 ) {
-      return;
-    }
-    if ( rx_a[d].rx_s.abort.abort_time < rx_a[d].scan_end ) {
-        rx_a[d].scan_end = rx_a[d].rx_s.abort.abort_time - 1;
-    }
-  }
+
+  rx_possible_abort_recheck(d, &rx_a[d], true);
 
   if ( current_time > rx_a[d].scan_end ) {
-    rx_a[d].rx_done_s.packet_size = 0;
-    rx_a[d].rx_done_s.rx_time_stamp = current_time;
-    rx_a[d].rx_done_s.status = P2G4_RXSTATUS_NOSYNC;
-    if ( rx_a[d].rx_s.abort.abort_time != current_time ) {
-      rx_do_RSSI(d);
-    }
-
-    bs_trace_raw_time(8,"RxDone (no sync during Rx sync) for device %u\n", d);
-
-    rx_a[d].rx_done_s.end_time = current_time;
-
-    p2G4_phy_resp_rx(d, &rx_a[d].rx_done_s);
-    dump_rx(&rx_a[d],NULL,d);
-    p2G4_handle_next_request(d);
+    rx_scan_ended(d, &rx_a[d], "Rx sync");
     return;
   }
 
   if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     //An abort of the Tx during a sync results in the sync being lost always (even if we are just at the end of the syncword)
-    fq_add(current_time + 1, Rx_Search, d);
+    fq_add(current_time + 1, Rx_Search_start, d); //Note that we go to start, to search again in between the ongoing transmissions
     return;
   } else {
     rx_a[d].biterrors += chm_bit_errors(&tx_l_c, rx_a[d].tx_nbr, d, &rx_a[d].rx_s, current_time);
   }
 
   if ( rx_a[d].biterrors >= rx_a[d].rx_s.sync_threshold ) {
-    fq_add(current_time + 1, Rx_Search, d);
+    fq_add(current_time + 1, Rx_Search_start, d); //Note that we go to start, to search again in between the ongoing transmissions
     return;
   }
 
   if ( current_time >= rx_a[d].sync_end ) {
-    //we have correctly synched:
+    //we have correctly synch'ed:
     rx_do_RSSI(d);
     rx_a[d].biterrors = 0;
     int device_accepted = 0;
@@ -328,7 +412,7 @@ static void f_rx_sync(uint d){
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_INPROGRESS;
 
     bs_trace_raw_time(8,"Rx Address found for device %u\n", d);
-    p2G4_phy_resp_rx_addr_found(d, &rx_a[d].rx_done_s, tx_l_c.tx_list[rx_a[d].tx_nbr].packet);
+    rx_resp_addr_found(d, &rx_a[d], tx_l_c.tx_list[rx_a[d].tx_nbr].packet);
 
     pc_header_t header;
     header = p2G4_get_next_request(d);
@@ -370,11 +454,8 @@ static void f_rx_sync(uint d){
 }
 
 static void f_rx_header(uint d){
-  if ( current_time >= rx_a[d].rx_s.abort.recheck_time ) {
-    if (pick_and_validate_abort(d, &(rx_a[d].rx_s.abort), "Rx") != 0) {
-      return;
-    }
-  }
+
+  rx_possible_abort_recheck(d, &rx_a[d], false);
 
   if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     rx_a[d].biterrors += rx_a[d].bpus;
@@ -390,7 +471,8 @@ static void f_rx_header(uint d){
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_HEADER_ERROR;
     bs_trace_raw_time(8,"RxDone (Header error) for device %u\n", d);
     rx_a[d].rx_done_s.end_time = current_time;
-    p2G4_phy_resp_rx(d, &rx_a[d].rx_done_s);
+
+    rx_respond_done(d, &rx_a[d]);
     dump_rx(&rx_a[d],NULL,d);
     p2G4_handle_next_request(d);
     return;
@@ -404,11 +486,8 @@ static void f_rx_header(uint d){
 }
 
 static void f_rx_payload(uint d){
-  if ( current_time >= rx_a[d].rx_s.abort.recheck_time ) {
-    if (pick_and_validate_abort(d, &(rx_a[d].rx_s.abort), "Rx") != 0) {
-      return;
-    }
-  }
+
+  rx_possible_abort_recheck(d, &rx_a[d], false);
 
   if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     rx_a[d].biterrors += rx_a[d].bpus;
@@ -421,10 +500,10 @@ static void f_rx_payload(uint d){
     if (!args.crcerr_data) {
         rx_a[d].rx_done_s.packet_size = 0;
     }
-    rx_a[d].rx_done_s.status = P2G4_RXSTATUS_CRC_ERROR;
+    rx_a[d].rx_done_s.status = P2G4_RXSTATUS_PACKET_CONTENT_ERROR;
     bs_trace_raw_time(8,"RxDone (CRC error) for device %u\n", d);
     rx_a[d].rx_done_s.end_time = current_time;
-    p2G4_phy_resp_rx(d, &rx_a[d].rx_done_s);
+    rx_respond_done(d, &rx_a[d]);
     dump_rx(&rx_a[d],NULL,d);
     p2G4_handle_next_request(d);
     return;
@@ -432,7 +511,7 @@ static void f_rx_payload(uint d){
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_OK;
     bs_trace_raw_time(8,"RxDone (CRC ok) for device %u\n", d);
     rx_a[d].rx_done_s.end_time = current_time;
-    p2G4_phy_resp_rx(d, &rx_a[d].rx_done_s);
+    rx_respond_done(d, &rx_a[d]);
     dump_rx(&rx_a[d],tx_l_c.tx_list[rx_a[d].tx_nbr].packet,d);
     p2G4_handle_next_request(d);
     return;
@@ -484,18 +563,6 @@ static void check_valid_abort(p2G4_abort_t *abort, bs_time_t start_time, const c
     bs_trace_error_time_line("Device %u wants a %s abort recheck before %s start (in %"PRItime")\n",
                              d, type, type, abort->recheck_time);
   }
-}
-
-static void map_txv1_to_txv2(p2G4_txv2_t *tx_v2_s, p2G4_tx_t *tx_v1_s){
-  tx_v2_s->start_tx_time = tx_v1_s->start_time;
-  tx_v2_s->start_packet_time = tx_v1_s->start_time;
-  tx_v2_s->end_tx_time = tx_v1_s->end_time;
-  tx_v2_s->end_packet_time = tx_v1_s->end_time;
-  tx_v2_s->phy_address = tx_v1_s->phy_address;
-  tx_v2_s->packet_size = tx_v1_s->packet_size;
-  tx_v2_s->power_level = tx_v1_s->power_level;
-  memcpy(&tx_v2_s->radio_params, &tx_v1_s->radio_params, sizeof(p2G4_radioparams_t));
-  memcpy(&tx_v2_s->abort, &tx_v1_s->abort, sizeof(p2G4_abort_t));
 }
 
 static void prepare_tx_common(uint d, p2G4_txv2_t *tx_s){
@@ -568,23 +635,6 @@ static void prepare_RSSI(uint d){
   fq_add(RSSI_s.meas_time, RSSI_Meas, d);
 }
 
-static void map_rxv1_to_rxv2(p2G4_rxv2_t *rx_v2_s, p2G4_rx_t *rx_v1_s){
-  rx_v2_s->start_time    = rx_v1_s->start_time;
-  rx_v2_s->scan_duration = rx_v1_s->scan_duration;
-  rx_v2_s->error_calc_rate = rx_v1_s->bps;
-  rx_v2_s->antenna_gain  = rx_v1_s->antenna_gain;
-  rx_v2_s->pream_and_addr_duration  = rx_v1_s->pream_and_addr_duration;
-  rx_v2_s->header_duration  = rx_v1_s->header_duration;
-  rx_v2_s->acceptable_pre_truncation = 0;
-  rx_v2_s->preamble_sync_threshold = rx_v1_s->sync_threshold;
-  rx_v2_s->addr_sync_threshold = rx_v1_s->sync_threshold;
-  rx_v2_s->sync_threshold = rx_v1_s->sync_threshold;
-  rx_v2_s->header_threshold = rx_v1_s->header_threshold;
-  rx_v2_s->resp_type = 0;
-  rx_v2_s->n_addr = 1;
-  memcpy(&rx_v2_s->radio_params, &rx_v1_s->radio_params, sizeof(p2G4_radioparams_t));
-  memcpy(&rx_v2_s->abort, &rx_v1_s->abort, sizeof(p2G4_abort_t));
-}
 
 static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
   PAST_CHECK(rxv2_s->start_time, d, "Rx");
@@ -614,7 +664,7 @@ static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
   }
   rx_a[d].bpus = rxv2_s->error_calc_rate/1000000;
 
-  fq_add(rxv2_s->start_time, Rx_Search, d);
+  fq_add(rxv2_s->start_time, Rx_Search_start, d);
 }
 
 static void prepare_rxv1(uint d){
@@ -624,6 +674,7 @@ static void prepare_rxv1(uint d){
   p2G4_phy_get(d, &rxv1_s, sizeof(p2G4_rx_t));
   map_rxv1_to_rxv2(&rxv2_s, &rxv1_s);
   rx_a[d].phy_address[0] = rxv1_s.phy_address;
+  rx_a[d].v1_request = true;
 
   prepare_rx_common(d, &rxv2_s);
 }
@@ -638,7 +689,18 @@ static void prepare_rxv2(uint d){
         "%i > %i\n",d, rxv2_s.n_addr, P2G4_RXV2_MAX_ADDRESSES);
   }
 
+  if ( rxv2_s.resp_type != 0 ){
+    bs_trace_error_time_line("Device %u: Attempting to Rx w resp_type = %i (not yet supported)\n",
+        d, rxv2_s.resp_type);
+  }
+
+  if ( rxv2_s.acceptable_pre_truncation >= rxv2_s.pream_and_addr_duration ) {
+    bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation >= pream_and_addr_duration (%u >= %u)\n",
+        d, rxv2_s.acceptable_pre_truncation, rxv2_s.pream_and_addr_duration);
+  }
+
   p2G4_phy_get(d, rx_a[d].phy_address, rxv2_s.n_addr*sizeof(p2G4_address_t));
+  rx_a[d].v1_request = false;
 
   prepare_rx_common(d, &rxv2_s);
 }
@@ -720,7 +782,8 @@ int main(int argc, char *argv[]) {
   fq_init(args.n_devs);
   fq_register_func(Wait_Done,      f_wait_done      );
   fq_register_func(RSSI_Meas,      f_RSSI_meas      );
-  fq_register_func(Rx_Search,      f_rx_search      );
+  fq_register_func(Rx_Search_start,f_rx_search_start);
+  fq_register_func(Rx_Search_reeval,f_rx_search_reeval);
   fq_register_func(Rx_Found,       f_rx_found       );
   fq_register_func(Rx_Sync,        f_rx_sync        );
   fq_register_func(Rx_Header,      f_rx_header      );
@@ -758,3 +821,16 @@ int main(int argc, char *argv[]) {
 
   return p2G4_main_clean_up();
 }
+
+/* TODO implement
+ * * Error_calc_rate < 1e6 <---
+ * * header_duration = 0 <---
+ * * Rxv2 dump
+ * * Txv2 dump
+ *
+ * * search_comp_mod procedure
+ *
+ * v2 API proper impl. review + test
+ *
+ * * check that I have all prints I need in FSMs
+ * */

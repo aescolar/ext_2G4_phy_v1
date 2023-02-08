@@ -14,6 +14,7 @@ tx_l_c_t tx_l_c;
 static tx_el_t *tx_list = NULL;
 
 static uint nbr_devs;
+static int max_tx_nbr; //highest device transmitting at this point
 
 void txl_create(uint n_devs){
   tx_l_c.tx_list = bs_calloc(n_devs, sizeof(tx_el_t));
@@ -21,6 +22,7 @@ void txl_create(uint n_devs){
   tx_l_c.ctr = 0;
   tx_list = tx_l_c.tx_list;
   nbr_devs = n_devs;
+  max_tx_nbr = -1;
 }
 
 void txl_free(void){
@@ -51,6 +53,7 @@ void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet){
 void txl_start_tx(uint d){
   tx_l_c.used[d] = TXS_NOISE;
   tx_l_c.ctr++;
+  max_tx_nbr = BS_MAX(max_tx_nbr, ((int)d));
 }
 
 /**
@@ -80,4 +83,16 @@ void txl_clear(uint d){
     tx_list[d].packet = NULL;
   }
   tx_l_c.ctr++;
+
+  for (int i = max_tx_nbr; i >= 0 ; i--){
+    if (tx_l_c.used[i]){
+      max_tx_nbr = i;
+      return;
+    }
+  }
+  max_tx_nbr = -1;//if we didnt find any
+}
+
+int txl_get_max_tx_nbr(void){
+  return max_tx_nbr;
 }

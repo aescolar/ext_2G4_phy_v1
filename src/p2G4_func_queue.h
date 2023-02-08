@@ -30,7 +30,8 @@ typedef enum {
   Tx_Abort_Reeval,
   Tx_Start,
   Tx_Packet_Start,
-  Rx_Search,
+  Rx_Search_reeval,
+  Rx_Search_start,
   N_funcs //Minor issue: one too many
 } f_index_t;
 //Note: We need to use these indexes, instead of just keeping the function pointers
