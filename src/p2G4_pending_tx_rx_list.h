@@ -113,11 +113,15 @@ typedef enum {
     Rx_State_Searching,//Searching for a fitting tx
 } rx_state_t;
 
+typedef struct {
+  uint errorspercalc; //How many errors do we calculate each time that we calculate errors
+  uint rate_uspercalc; //Error calculation rate, in us between calculations
+  int  us_to_next_calc;
+} rx_error_calc_state_t;
 /**
  * Reception status (per device interface)
  */
 typedef struct {
-  uint8_t bpus; //bits per us
   bs_time_t scan_end; //Last us (included) in which we will scan
   bs_time_t sync_end; //Last us (included) in which the preamble + address ends
   bs_time_t header_end; //Last us (included) in which the header ends
@@ -128,6 +132,7 @@ typedef struct {
   uint biterrors;
   rx_state_t state;
   p2G4_address_t phy_address[16];
+  rx_error_calc_state_t err_calc_state;
   bool v1_request;
 } rx_status_t;
 

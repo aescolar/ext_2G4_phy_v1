@@ -245,9 +245,10 @@ static inline void combine_SNR(rec_status_t *rx_status ) {
 
 /**
  * Return the number of biterrors while receiving this microsecond of the packet sent by device <tx_nbr>
- * and received by device <rx_nbr>
+ * and received by device <rx_nbr>.
+ * Where <n_calcs> error samples are taken, each with the same parameters
  */
-uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rxv2_t *rx_s , bs_time_t current_time){
+uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rxv2_t *rx_s , bs_time_t current_time, uint n_calcs){
 
   rec_status_t *status = &rec_status[rx_nbr];
 
@@ -270,7 +271,7 @@ uint chm_bit_errors(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rxv2_t *rx_s 
 
 
   uint bit_errors = 0;
-  for (uint ctr = 0; ctr < rx_s->error_calc_rate/1000000 ; ctr++){
+  for (uint ctr = 0; ctr < n_calcs ; ctr++){
     bit_errors += bs_random_Bern(status->BER);
   }
   return bit_errors;

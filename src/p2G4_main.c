@@ -380,6 +380,21 @@ static void f_rx_found(uint d){
   return;
 }
 
+
+static int rx_bit_error_calc(uint d, uint tx_nbr, rx_status_t *rx_st) {
+  int biterrors = 0;
+  rx_error_calc_state_t *st = &rx_st->err_calc_state;
+  if (st->us_to_next_calc-- <= 0) {
+    if ( ( tx_l_c.used[tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) {
+      biterrors = st->errorspercalc;
+    } else {
+      biterrors = chm_bit_errors(&tx_l_c, tx_nbr, d, &rx_st->rx_s, current_time, st->errorspercalc);
+    }
+    st->us_to_next_calc  = st->rate_uspercalc - 1;
+  }
+  return biterrors;
+}
+
 static void f_rx_sync(uint d){
 
   rx_possible_abort_recheck(d, &rx_a[d], true);
@@ -395,7 +410,7 @@ static void f_rx_sync(uint d){
     fq_add(current_time + 1, Rx_Search_start, d); //Note that we go to start, to search again in between the ongoing transmissions
     return;
   } else {
-    rx_a[d].biterrors += chm_bit_errors(&tx_l_c, rx_a[d].tx_nbr, d, &rx_a[d].rx_s, current_time);
+    rx_a[d].biterrors += rx_bit_error_calc(d, rx_a[d].tx_nbr, &rx_a[d]);
   }
 
   if ( rx_a[d].biterrors >= rx_a[d].rx_s.sync_threshold ) {
@@ -466,11 +481,8 @@ static void f_rx_header(uint d){
 
   rx_possible_abort_recheck(d, &rx_a[d], false);
 
-  if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
-    rx_a[d].biterrors += rx_a[d].bpus;
-  } else {
-    rx_a[d].biterrors += chm_bit_errors(&tx_l_c, rx_a[d].tx_nbr, d, &rx_a[d].rx_s, current_time);
-  }
+  rx_a[d].biterrors += rx_bit_error_calc(d, rx_a[d].tx_nbr, &rx_a[d]);
+
 
   if ( ( ( current_time >= rx_a[d].header_end )
         && ( rx_a[d].biterrors > rx_a[d].rx_s.header_threshold ) )
@@ -499,11 +511,7 @@ static void f_rx_payload(uint d){
 
   rx_possible_abort_recheck(d, &rx_a[d], false);
 
-  if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
-    rx_a[d].biterrors += rx_a[d].bpus;
-  } else {
-    rx_a[d].biterrors += chm_bit_errors(&tx_l_c, rx_a[d].tx_nbr, d, &rx_a[d].rx_s, current_time);
-  }
+  rx_a[d].biterrors += rx_bit_error_calc(d, rx_a[d].tx_nbr, &rx_a[d]);
 
   if (((current_time >= rx_a[d].payload_end) && (rx_a[d].biterrors > 0))
       || (current_time >= rx_a[d].rx_s.abort.abort_time)) {
@@ -666,13 +674,21 @@ static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
   if ( rxv2_s->abort.abort_time < rx_a[d].scan_end ) {
     rx_a[d].scan_end = rxv2_s->abort.abort_time - 1;
   }
-  if (rxv2_s->error_calc_rate % 1000000 != 0) {
-    bs_trace_error_time_line("The device %u requested a reception with a rate "
-                             "of %u bps, but only multiples of 1Mbps are "
-                             "supported so far\n",
+
+  if (rxv2_s->error_calc_rate % 1000000 == 0) {
+    rx_a[d].err_calc_state.errorspercalc = rxv2_s->error_calc_rate / 1000000;
+    rx_a[d].err_calc_state.rate_uspercalc = 1;
+    rx_a[d].err_calc_state.us_to_next_calc = 0;
+  } else if (1000000 % rxv2_s->error_calc_rate == 0) {
+    rx_a[d].err_calc_state.errorspercalc = 1;
+    rx_a[d].err_calc_state.rate_uspercalc = 1000000 / rxv2_s->error_calc_rate;
+    rx_a[d].err_calc_state.us_to_next_calc = 0;
+  } else {
+    bs_trace_error_time_line("The device %u requested a reception with an error calc rate "
+                             "of %u times per s, but only integer multiples or integer dividers of 1MHz "
+                             "are supported so far (for ex. 3MHz, 1MHz, 250KHz, 62.5KHz)\n",
                              d, rxv2_s->error_calc_rate);
   }
-  rx_a[d].bpus = rxv2_s->error_calc_rate/1000000;
 
   fq_add(rxv2_s->start_time, Rx_Search_start, d);
 }
@@ -833,12 +849,13 @@ int main(int argc, char *argv[]) {
 }
 
 /* TODO implement
- * * Error_calc_rate < 1e6 <---
  * * Rxv2 dump
  * * Txv2 dump
  *
  * * search_comp_mod procedure
  *
  * v2 API proper impl. review + test
+ * Update docs
+ * type 2 header
  *
  * */
