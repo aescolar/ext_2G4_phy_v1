@@ -29,7 +29,7 @@ static p2G4_args_t args;
 static void p2G4_handle_next_request(uint d);
 
 static void f_wait_done(uint d){
-  bs_trace_raw_time(8,"Wait done for device %u\n", d);
+  bs_trace_raw_time(8,"Device %u - Wait done\n", d);
   p2G4_phy_resp_wait(d);
   p2G4_handle_next_request(d);
 }
@@ -41,9 +41,9 @@ static void f_tx_end(uint d){
 
   tx_el = &tx_l_c.tx_list[d];
   if ( tx_el->tx_s.abort.abort_time < tx_el->tx_s.end_tx_time ) {
-    bs_trace_raw_time(8,"Tx done (Tx aborted) for device %u\n", d);
+    bs_trace_raw_time(8,"Device %u - Tx done (Tx aborted)\n", d);
   } else {
-    bs_trace_raw_time(8,"Tx done (Tx ended) for device %u\n", d);
+    bs_trace_raw_time(8,"Device %u - Tx done (Tx ended)\n", d);
   }
 
   dump_tx(tx_el, d);
@@ -61,7 +61,7 @@ static void f_tx_end(uint d){
  */
 static int pick_and_validate_abort(uint d, p2G4_abort_t *ab, const char* type) {
 
-  bs_trace_raw_time(8,"Reevaluating %s abort for device %u\n", type, d);
+  bs_trace_raw_time(8,"Device %u - Reevaluating %s abort\n", d, type);
 
   if ( p2G4_phy_get_new_abort(d, ab) != 0) {
     bs_trace_raw_time(4,"Device %u terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
@@ -76,10 +76,10 @@ static int pick_and_validate_abort(uint d, p2G4_abort_t *ab, const char* type) {
     bs_trace_error_time_line("Device %u requested %s abort recheck in %"PRItime" which has passed\n", d, type, ab->recheck_time);
   }
   if ( current_time == ab->recheck_time ){
-    bs_trace_raw_time(4,"(device %u) Note: Abort reevaluation in same time (possible infinite loop in device?)\n", d);
+    bs_trace_raw_time(4,"Device %u - Note: Abort reevaluation in same time (possible infinite loop in device?)\n", d);
   }
 
-  bs_trace_raw_time(8,"device %u (%s) requested to reschedule abort,recheck at %"PRItime ",%"PRItime ")\n",
+  bs_trace_raw_time(8,"Device %u (%s) requested to reschedule abort,recheck at %"PRItime ",%"PRItime ")\n",
                     d, type, ab->abort_time, ab->recheck_time);
   return 0;
 }
@@ -132,7 +132,7 @@ static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
 
 static void tx_start_packet_common(p2G4_txv2_t* tx_s, uint d){
   txl_start_packet(d);
-  bs_trace_raw_time(8,"Tx (d %u) packet start\n", d);
+  bs_trace_raw_time(8,"Device %u - Tx packet start\n", d);
   find_and_activate_rx(tx_s, d);
 }
 
@@ -175,7 +175,7 @@ static void f_tx_start(uint d) {
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
   txl_start_tx(d);
-  bs_trace_raw_time(8,"Starting Tx for device %u\n", d);
+  bs_trace_raw_time(8,"Device %u - Tx start\n", d);
 
   if ( current_time >= tx_s->start_packet_time) {
     tx_start_packet_common(tx_s, d);
@@ -209,7 +209,7 @@ static void f_tx_packet_end(uint d){
   p2G4_txv2_t* tx_s;
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
-  bs_trace_raw_time(8,"Tx (d %u) packet end\n", d);
+  bs_trace_raw_time(8,"Device %u - Tx packet end\n", d);
   txl_end_packet(d);
   tx_schedule_next_event(tx_s, d);
 }
@@ -287,6 +287,8 @@ static void f_rx_search_start(uint d) {
 
   rx_possible_abort_recheck(d, rx_status, true);
 
+  bs_trace_raw_time(8,"Device %u - Starting Rx\n", d);
+
   /* Let's check for possible ongoing transmissions we may still catch */
   tx_d = find_fitting_tx(rx_status);
 
@@ -331,7 +333,7 @@ static void rx_scan_ended(uint d, rx_status_t *rx_status, const char * const sta
     rx_do_RSSI(d);
   }
 
-  bs_trace_raw_time(8,"RxDone (NoSync during %s) for device %u\n", d, state);
+  bs_trace_raw_time(8,"Device %u - RxDone (NoSync during %s)\n", d, state);
 
   rx_status->state = Rx_State_NotSearching;
   rx_status->rx_done_s.end_time = current_time;
@@ -348,7 +350,7 @@ static void f_rx_search_reeval(uint d) {
   rx_possible_abort_recheck(d, rx_status, true);
 
   if ( current_time > rx_status->scan_end ) {
-    rx_scan_ended(d, rx_status, "Rx Seach");
+    rx_scan_ended(d, rx_status, "Rx Search");
     return;
   }
 
@@ -369,6 +371,7 @@ static void f_rx_found(uint d){
     rx_status->payload_end = tx_s->end_packet_time;
     rx_status->biterrors = 0;
     rx_status->rx_done_s.phy_address = tx_s->phy_address;
+    bs_trace_raw_time(8,"Device %u - Matched Tx %u\n", d, tx_d);
     fq_add(current_time, Rx_Sync, d);
     return;
   }
@@ -388,6 +391,7 @@ static void f_rx_sync(uint d){
 
   if ( ( tx_l_c.used[rx_a[d].tx_nbr] & TXS_PACKET_ONGOING ) == 0 ) { //if the Tx aborted
     //An abort of the Tx during a sync results in the sync being lost always (even if we are just at the end of the syncword)
+    bs_trace_raw_time(8,"Device %u - Sync lost (Tx disappeared)\n", d);
     fq_add(current_time + 1, Rx_Search_start, d); //Note that we go to start, to search again in between the ongoing transmissions
     return;
   } else {
@@ -395,6 +399,7 @@ static void f_rx_sync(uint d){
   }
 
   if ( rx_a[d].biterrors >= rx_a[d].rx_s.sync_threshold ) {
+    bs_trace_raw_time(8,"Device %u - Sync lost (errors)\n", d);
     fq_add(current_time + 1, Rx_Search_start, d); //Note that we go to start, to search again in between the ongoing transmissions
     return;
   }
@@ -411,7 +416,7 @@ static void f_rx_sync(uint d){
     rx_a[d].rx_done_s.packet_size = tx_l_c.tx_list[rx_a[d].tx_nbr].tx_s.packet_size;
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_INPROGRESS;
 
-    bs_trace_raw_time(8,"Rx Address found for device %u\n", d);
+    bs_trace_raw_time(8,"Device %u - Sync done\n", d);
     rx_resp_addr_found(d, &rx_a[d], tx_l_c.tx_list[rx_a[d].tx_nbr].packet);
 
     pc_header_t header;
@@ -419,13 +424,13 @@ static void f_rx_sync(uint d){
     switch (header) {
     case PB_MSG_DISCONNECT:
       nbr_active_devs -= 1;
-      bs_trace_raw_time(5,"device %i disconnected during Rx (minor protocol violation) (%i left)\n", d, nbr_active_devs);
+      bs_trace_raw_time(5,"Device %u disconnected during Rx (minor protocol violation) (%i left)\n", d, nbr_active_devs);
       device_accepted = 0;
       fq_remove(d);
       return;
       break;
     case PB_MSG_TERMINATE:
-      bs_trace_raw_time(4,"device %i terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
+      bs_trace_raw_time(4,"Device %u terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
       nbr_active_devs = 0;
       return;
       break;
@@ -436,7 +441,7 @@ static void f_rx_sync(uint d){
       device_accepted = 0;
       break;
     default:
-      bs_trace_error_line("The device %u has violated the protocol during an Rx (%u) => Terminate\n",d, header);
+      bs_trace_error_line("Device %u has violated the protocol during an Rx (%u) => Terminate\n",d, header);
       break;
     }
 
@@ -473,7 +478,7 @@ static void f_rx_header(uint d){
        ( current_time >= rx_a[d].rx_s.abort.abort_time ) ) {
     rx_a[d].rx_done_s.packet_size = 0;
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_HEADER_ERROR;
-    bs_trace_raw_time(8,"RxDone (Header error) for device %u\n", d);
+    bs_trace_raw_time(8,"Device %u - RxDone (Header error)\n", d);
     rx_a[d].rx_done_s.end_time = current_time;
 
     rx_respond_done(d, &rx_a[d]);
@@ -481,6 +486,7 @@ static void f_rx_header(uint d){
     p2G4_handle_next_request(d);
     return;
   } else if ( current_time >= rx_a[d].header_end ) {
+    bs_trace_raw_time(8,"Device %u - Header done\n", d);
     fq_add(current_time + 1, Rx_Payload, d);
     return;
   } else {
@@ -505,7 +511,7 @@ static void f_rx_payload(uint d){
         rx_a[d].rx_done_s.packet_size = 0;
     }
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_PACKET_CONTENT_ERROR;
-    bs_trace_raw_time(8,"RxDone (CRC error) for device %u\n", d);
+    bs_trace_raw_time(8,"Device %u - RxDone (CRC error)\n", d);
     rx_a[d].rx_done_s.end_time = current_time;
     rx_respond_done(d, &rx_a[d]);
     dump_rx(&rx_a[d],NULL,d);
@@ -513,7 +519,7 @@ static void f_rx_payload(uint d){
     return;
   } else if ( current_time >= rx_a[d].payload_end ) {
     rx_a[d].rx_done_s.status = P2G4_RXSTATUS_OK;
-    bs_trace_raw_time(8,"RxDone (CRC ok) for device %u\n", d);
+    bs_trace_raw_time(8,"Device %u - RxDone (CRC ok)\n", d);
     rx_a[d].rx_done_s.end_time = current_time;
     rx_respond_done(d, &rx_a[d]);
     dump_rx(&rx_a[d],tx_l_c.tx_list[rx_a[d].tx_nbr].packet,d);
@@ -716,11 +722,11 @@ static void p2G4_handle_next_request(uint d) {
   switch (header) {
     case PB_MSG_DISCONNECT:
       nbr_active_devs -= 1;
-      bs_trace_raw_time(3,"Device %i disconnected (%i left)\n", d, nbr_active_devs);
+      bs_trace_raw_time(3,"Device %u disconnected (%i left)\n", d, nbr_active_devs);
       fq_remove(d);
       break;
     case PB_MSG_TERMINATE:
-      bs_trace_raw_time(4,"Device %i terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
+      bs_trace_raw_time(4,"Device %u terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
       nbr_active_devs = 0;
       break;
     case PB_MSG_WAIT:
@@ -835,5 +841,4 @@ int main(int argc, char *argv[]) {
  *
  * v2 API proper impl. review + test
  *
- * * check that I have all prints I need in FSMs
  * */
