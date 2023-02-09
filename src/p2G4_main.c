@@ -441,7 +441,11 @@ static void f_rx_sync(uint d){
     }
 
     if (device_accepted) {
-      fq_add(current_time + 1, Rx_Header, d);
+      if ( rx_a[d].rx_s.header_duration == 0 ) {
+        fq_add(current_time + 1, Rx_Payload, d);
+      } else {
+        fq_add(current_time + 1, Rx_Header, d);
+      }
     } else {
       dump_rx(&rx_a[d], tx_l_c.tx_list[rx_a[d].tx_nbr].packet, d);
       p2G4_handle_next_request(d);
@@ -824,7 +828,6 @@ int main(int argc, char *argv[]) {
 
 /* TODO implement
  * * Error_calc_rate < 1e6 <---
- * * header_duration = 0 <---
  * * Rxv2 dump
  * * Txv2 dump
  *
