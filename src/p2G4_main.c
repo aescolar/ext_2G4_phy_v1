@@ -849,8 +849,6 @@ int main(int argc, char *argv[]) {
 }
 
 /* TODO implement
- * * Rxv2 dump
- * * Txv2 dump
  *
  * * search_comp_mod procedure
  *
@@ -858,4 +856,9 @@ int main(int argc, char *argv[]) {
  * Update docs
  * type 2 header
  *
+ * TODO: Add command line option to select if v1 dumps should be produced or not (By default yes)
+ *
+ * TODO: Change Rx search to start at last moment after found given the allowed preamble trunc instead of immediately
+ *
+ * TODO: enable Txv2 & Rxv2 dumps
  * */
