@@ -313,17 +313,18 @@ uint chm_is_packet_synched(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, p2G4_rxv2_t
 /**
  * What RSSI power will the device <rx_nbr> measure in this instant
  */
-void chm_RSSImeas(tx_l_c_t *tx_l, p2G4_rssi_t *RSSI_s, p2G4_rssi_done_t* RSSI_meas, uint rx_nbr, bs_time_t current_time){
+void chm_RSSImeas(tx_l_c_t *tx_l, p2G4_power_t rx_antenna_gain, p2G4_radioparams_t *rx_radio_params , p2G4_rssi_done_t* RSSI_meas, uint rx_nbr, bs_time_t current_time){
   rec_status_t *rec_s = &rec_status[rx_nbr];
   p2G4_rssi_power_t RSSI;
 
-  CalculateRxPowerAndISI(tx_l, rec_s, RSSI_s->antenna_gain, UINT_MAX, rx_nbr, current_time);
+  CalculateRxPowerAndISI(tx_l, rec_s, rx_antenna_gain, UINT_MAX, rx_nbr, current_time);
 
-  m_analog_rx[rx_nbr](modem_o[rx_nbr], &RSSI_s->radio_params,
+  m_analog_rx[rx_nbr](modem_o[rx_nbr], rx_radio_params,
                       &rec_s->SNR_analog_o, &rec_s->RSSI_meas_power,
                       rec_s->rx_pow, tx_l, UINT_MAX);
 
-  m_dig_RSSI[rx_nbr](modem_o[rx_nbr], &RSSI_s->radio_params,
+  m_dig_RSSI[rx_nbr](modem_o[rx_nbr], rx_radio_params,
                      rec_s->RSSI_meas_power, &RSSI);
   RSSI_meas->RSSI = RSSI;
 }
+

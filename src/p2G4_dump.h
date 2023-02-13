@@ -54,6 +54,11 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint d);
 void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint d);
 
 /**
+ * Write to file information about a completed CCA check
+ */
+void dump_cca(cca_status_t *cca, uint dev_nbr);
+
+/**
  * Write to file information about a modem model invocation
  */
 void dump_ModemRx(bs_time_t now, uint tx_nbr, uint d, uint n_dev, uint CalNotRecal, p2G4_radioparams_t *radio_params, rec_status_t *rec_s, tx_l_c_t *txl_c );

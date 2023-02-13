@@ -10,6 +10,7 @@
 #include "bs_oswrap.h"
 #include "bs_utils.h"
 #include "bs_pc_2G4.h"
+#include "bs_pc_2G4_utils.h"
 #include "bs_rand_main.h"
 #include "p2G4_args.h"
 #include "p2G4_channel_and_modem.h"
@@ -24,6 +25,7 @@ static int nbr_active_devs; //How many devices are still active (devices may dis
 extern tx_l_c_t tx_l_c; //list of all transmissions
 static p2G4_rssi_t *RSSI_a; //array of all RSSI measurements
 static rx_status_t *rx_a; //array of all receptions
+static cca_status_t *cca_a; //array of all "compatible" searches
 static p2G4_args_t args;
 
 static void p2G4_handle_next_request(uint d);
@@ -218,7 +220,7 @@ static void f_tx_packet_end(uint d){
 static void f_RSSI_meas(uint d) {
   p2G4_rssi_done_t RSSI_meas;
 
-  chm_RSSImeas(&tx_l_c, &RSSI_a[d], &RSSI_meas, d, current_time);
+  chm_RSSImeas(&tx_l_c, RSSI_a[d].antenna_gain, &RSSI_a[d].radio_params, &RSSI_meas, d, current_time);
 
   dump_RSSImeas(&RSSI_a[d], &RSSI_meas, d);
 
@@ -229,11 +231,7 @@ static void f_RSSI_meas(uint d) {
 }
 
 static void rx_do_RSSI(uint d) {
-  p2G4_rssi_t RSSI_s;
-  RSSI_s.radio_params.center_freq = rx_a[d].rx_s.radio_params.center_freq;
-  RSSI_s.radio_params.modulation = rx_a[d].rx_s.radio_params.modulation;
-  RSSI_s.meas_time = current_time;
-  chm_RSSImeas(&tx_l_c, &RSSI_s, &rx_a[d].rx_done_s.rssi, d, current_time);
+  chm_RSSImeas(&tx_l_c, rx_a[d].rx_s.antenna_gain, &rx_a[d].rx_s.radio_params, &rx_a[d].rx_done_s.rssi, d, current_time);
 }
 
 /**
@@ -539,6 +537,101 @@ static void f_rx_payload(uint d){
   }
 }
 
+
+/**
+ * Find if there is a compatible modulation for this CCA search
+ * if there is not, return -1
+ * if there is, return the device number
+ *
+ * Note that this search is not the same as for Rx
+ * a) there does not need to be an actual packet in the air
+ * b) we do not check the address
+ * c) we do not check where in the transmittion we may be
+ */
+static int find_fitting_tx_cca(p2G4_cca_t *req){
+  register uint *used = tx_l_c.used;
+  int max_tx = txl_get_max_tx_nbr();
+  for (int i = 0 ; i <= max_tx; i++) {
+    if (used[i] != TXS_OFF)
+    {
+      p2G4_txv2_t* tx_s = &tx_l_c.tx_list[i].tx_s;
+      if ((tx_s->radio_params.center_freq == req->radio_params.center_freq) &&
+         (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
+             (req->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) )
+      {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+
+static void f_cca_meas(uint d) {
+  cca_status_t *cca_s = &cca_a[d];
+  p2G4_cca_t *req = &cca_a[d].req;
+  p2G4_cca_done_t *resp = &cca_a[d].resp;
+  p2G4_rssi_done_t RSSI_meas;
+
+  if ( current_time >= req->abort.recheck_time ) {
+    if ( pick_and_validate_abort(d, &(req->abort), "CCA") != 0 ) {
+      return;
+    }
+    if ((req->abort.abort_time < cca_s->scan_end) ) {
+      cca_s->scan_end = req->abort.abort_time;
+    }
+  }
+
+  if ( current_time >= cca_s->next_meas ) {
+    { //Check RSSI level
+      chm_RSSImeas(&tx_l_c, req->antenna_gain, &req->radio_params, &RSSI_meas, d, current_time);
+      cca_a[d].RSSI_acc += p2G4_RSSI_value_to_dBm(RSSI_meas.RSSI);
+      resp->RSSI_max = BS_MAX(resp->RSSI_max, RSSI_meas.RSSI);
+
+      if (RSSI_meas.RSSI > req->rssi_threshold) {
+        resp->rssi_overthreshold = true;
+        if (req->stop_when_found & 2) {
+          cca_s->scan_end = current_time;
+        }
+      }
+    }
+
+    { //check for compatible modulation
+      int tx_match;
+      tx_match = find_fitting_tx_cca(req);
+      if (tx_match >= 0){
+        p2G4_power_t power = p2G4_RSSI_value_to_dBm(RSSI_meas.RSSI);
+        resp->mod_rx_power = BS_MAX(resp->mod_rx_power, power);
+        if (power > req->mod_threshold) {
+          resp->mod_found = true;
+          if (req->stop_when_found & 1) {
+            cca_s->scan_end = current_time;
+          }
+        }
+      }
+    }
+
+    cca_s->next_meas += req->scan_period;
+    cca_a[d].n_meas++;
+  }
+
+  if ( current_time >= cca_s->scan_end ) {
+    resp->RSSI_ave = p2G4_RSSI_value_from_dBm(cca_a[d].RSSI_acc / cca_a[d].n_meas); //average the result
+    resp->end_time = current_time;
+    p2G4_phy_resp_cca(d, resp);
+    dump_cca(&cca_a[d], d);
+    p2G4_handle_next_request(d);
+    return;
+  }
+
+  /* Otherwise, we just continue */
+  bs_time_t next_time = BS_MIN(cca_s->scan_end, req->abort.recheck_time);
+  next_time = BS_MIN(cca_s->next_meas, next_time);
+  fq_add(next_time, Rx_CCA_meas, d);
+
+  return;
+}
+
 #define PAST_CHECK(start, d, type) \
   if (current_time >= start) { \
     bs_trace_error_time_line("Device %u wants to start a %s in "\
@@ -731,6 +824,35 @@ static void prepare_rxv2(uint d){
   prepare_rx_common(d, &rxv2_s);
 }
 
+static void prepare_CCA(uint d){
+  p2G4_cca_t *cca_s = &cca_a[d].req;
+
+  memset(&cca_a[d], 0, sizeof(p2G4_cca_t));
+
+  p2G4_phy_get(d, &cca_s, sizeof(p2G4_cca_t));
+
+  PAST_CHECK(cca_s->start_time, d, "CCA");
+
+  check_valid_abort(&cca_s->abort, cca_s->start_time , "CCA", d);
+
+  if ( cca_s->scan_period == 0 ){
+    bs_trace_error_time_line("Device %u: scan period must be bigger than 0\n", d);
+  }
+
+  if ( cca_s->stop_when_found > 3 ){
+    bs_trace_error_time_line("Device %u: Attempting to CCA w stop_when_found %u > 3 (not supported)\n",
+           d, cca_s->stop_when_found);
+  }
+
+  cca_a[d].scan_end = cca_s->start_time + cca_s->scan_duration -1;
+  cca_a[d].next_meas = cca_s->start_time;
+  cca_a[d].RSSI_acc = 0;
+
+  memset(&cca_a[d].resp, 0, sizeof(cca_a[d].resp));
+
+  fq_add(cca_s->start_time, Rx_CCA_meas, d);
+}
+
 static void p2G4_handle_next_request(uint d) {
   pc_header_t header;
   header = p2G4_get_next_request(d);
@@ -763,6 +885,9 @@ static void p2G4_handle_next_request(uint d) {
     case P2G4_MSG_RXV2:
       prepare_rxv2(d);
       break;
+    case P2G4_MSG_CCA_MEAS:
+      prepare_CCA(d);
+      break;
     default:
       bs_trace_error_time_line("The device %u has violated the protocol (%u)\n",d, header);
       break;
@@ -777,6 +902,8 @@ uint8_t p2G4_main_clean_up(){
     free(RSSI_a);
   if (rx_a != NULL)
     free(rx_a);
+  if (cca_a != NULL)
+    free(cca_a);
   txl_free();
   channel_and_modem_delete();
   fq_free();
@@ -819,11 +946,13 @@ int main(int argc, char *argv[]) {
   fq_register_func(Tx_Packet_Start,f_tx_packet_start);
   fq_register_func(Tx_Packet_End,  f_tx_packet_end  );
   fq_register_func(Tx_End,         f_tx_end         );
+  fq_register_func(Rx_CCA_meas,    f_cca_meas       );
 
   bs_random_init(args.rseed);
   txl_create(args.n_devs);
   RSSI_a = bs_calloc(args.n_devs, sizeof(p2G4_rssi_t));
   rx_a = bs_calloc(args.n_devs, sizeof(rx_status_t));
+  cca_a = bs_calloc(args.n_devs, sizeof(cca_status_t));
 
   if (args.dont_dump == 0) open_dump_files(args.compare, args.stop_on_diff, args.dump_imm, args.s_id, args.p_id, args.n_devs);
 
@@ -850,15 +979,15 @@ int main(int argc, char *argv[]) {
 
 /* TODO implement
  *
- * * search_comp_mod procedure
- *
  * v2 API proper impl. review + test
  * Update docs
  * type 2 header
  *
- * TODO: Add command line option to select if v1 dumps should be produced or not (By default yes)
- *
  * TODO: Change Rx search to start at last moment after found given the allowed preamble trunc instead of immediately
  *
  * TODO: enable Txv2 & Rxv2 dumps
+ *
+ * TODO: Add RSSI meas during Rx abort reeval
+ *
+ * TODO: Add v2 API functions (for device and Phy)
  * */

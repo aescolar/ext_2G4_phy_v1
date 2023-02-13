@@ -83,6 +83,16 @@ void p2G4_phy_resp_rxv2(uint d, p2G4_rxv2_done_t* rx_done_s) {
 }
 
 /**
+ * Respond to the device with P2G4_MSG_CCA_END and a p2G4_cca_done_t
+ */
+void p2G4_phy_resp_cca(uint d, p2G4_cca_done_t *sc_done_s) {
+  if (pb_phy_is_connected_to_device(&cb_med_state, d)) {
+    pb_send_msg(cb_med_state.ff_ptd[d], P2G4_MSG_CCA_END,
+                (void *)sc_done_s, sizeof(p2G4_cca_done_t));
+  }
+}
+
+/**
  * Respond to the devie with P2G4_MSG_RSSI_END and a p2G4_rssi_done_t
  */
 void p2G4_phy_resp_RSSI(uint d, p2G4_rssi_done_t* RSSI_done_s) {

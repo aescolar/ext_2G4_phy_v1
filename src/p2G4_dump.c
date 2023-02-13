@@ -28,6 +28,7 @@ typedef struct {
   uint32_t nbr_rxv2_er;
   uint32_t nbr_txv2_er;
   uint32_t nbr_RSSI_er;
+  uint32_t nbr_CCA_er;
   uint32_t nbr_modemrx_er;
   //Number lines dumped:
   uint32_t nbr_rxv1;
@@ -35,6 +36,7 @@ typedef struct {
   uint32_t nbr_rxv2;
   uint32_t nbr_txv2;
   uint32_t nbr_RSSI;
+  uint32_t nbr_CCA;
   uint32_t nbr_modemrx;
 } t_dump_check_stats;
 
@@ -45,6 +47,7 @@ static FILE **rxv1_f = NULL;
 static FILE **txv2_f = NULL;
 static FILE **rxv2_f = NULL;
 static FILE **RSSI_f = NULL;
+static FILE **CCA_f = NULL;
 static FILE **modemrx_f = NULL;
 
 static void dump_txv1_heading(FILE *file){
@@ -95,6 +98,19 @@ static void dump_rxv2_heading(FILE *file){
                "payload_end,rx_time_stamp,status,RSSI,"
                "packet_size,packet\n");
 }
+
+static void dump_CCA_heading(FILE *file){
+  if (file == NULL) {
+    return;
+  }
+  fprintf(file,"start_time,scan_duration,scan_period,"
+      "modulation,center_freq,antenna_gain,"
+      "threshold_mod,threshold_rssi,stop_when_found,"
+      "abort_time,recheck_time,"
+      "end_time, RSSI_ave, RSSI_max, mod_rx_power,"
+      "mod_found, rssi_overthreshold\n");
+}
+
 
 static void dump_RSSI_heading(FILE *file){
   if (file == NULL) {
@@ -174,6 +190,7 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
   txv2_f = bs_calloc(n_dev, sizeof(FILE *));
   rxv2_f = bs_calloc(n_dev, sizeof(FILE *));
   RSSI_f = bs_calloc(n_dev, sizeof(FILE *));
+  CCA_f  = bs_calloc(n_dev, sizeof(FILE *));
   modemrx_f = bs_calloc(n_dev, sizeof(FILE *));
 
   int fname_len = 26 + strlen(path) + strlen(p);
@@ -182,6 +199,7 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
     rxv1_f[i] = open_file(fname_len, path, "Rx", p, i);
     //txv2_f[i] = open_file(fname_len, path, "Txv2", p, i);
     //rxv2_f[i] = open_file(fname_len, path, "Rxv2", p, i);
+    //CCA_f[i]  = open_file(fname_len, path, "CCA", p, i);
     RSSI_f[i] = open_file(fname_len, path, "RSSI", p, i);
     modemrx_f[i] = open_file(fname_len, path, "ModemRx", p, i);
 
@@ -192,6 +210,7 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
         setvbuf(txv2_f[i], NULL, _IOLBF, 0);
         setvbuf(rxv2_f[i], NULL, _IOLBF, 0);
         setvbuf(RSSI_f[i], NULL, _IOLBF, 0);
+        setvbuf(CCA_f[i] , NULL, _IOLBF, 0);
         setvbuf(modemrx_f[i], NULL, _IOLBF, 0);
       }
       dump_txv1_heading(txv1_f[i]);
@@ -199,6 +218,7 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
       dump_txv2_heading(txv2_f[i]);
       dump_rxv2_heading(rxv2_f[i]);
       dump_RSSI_heading(RSSI_f[i]);
+      dump_CCA_heading(RSSI_f[i]);
       dump_modemrx_heading(modemrx_f[i]);
     }
   }
@@ -237,6 +257,7 @@ int close_dump_files() {
         ret_error |= print_stats("Txv2", i, stats[i].nbr_txv2, stats[i].nbr_txv2_er, txv2_f[i]);
         ret_error |= print_stats("Rxv2", i, stats[i].nbr_rxv2, stats[i].nbr_rxv2_er, rxv2_f[i]);
         ret_error |= print_stats("RSSI", i, stats[i].nbr_RSSI, stats[i].nbr_RSSI_er, RSSI_f[i]);
+        ret_error |= print_stats("CCA" , i, stats[i].nbr_CCA,  stats[i].nbr_CCA_er, CCA_f[i]);
         ret_error |= print_stats("ModemRx", i, stats[i].nbr_modemrx, stats[i].nbr_modemrx_er, modemrx_f[i]);
       }
     }
@@ -246,7 +267,8 @@ int close_dump_files() {
 
   if ((txv1_f != NULL) && (rxv1_f != NULL) &&
       (txv2_f != NULL) && (rxv2_f != NULL) &&
-      (RSSI_f != NULL) && (modemrx_f != NULL)) {
+      (RSSI_f != NULL) && (modemrx_f != NULL) &&
+      (CCA_f != NULL) ) {
     for (i = 0; i < n_dev; i ++) {
       if (txv1_f[i] != NULL)
         fclose(txv1_f[i]);
@@ -258,6 +280,8 @@ int close_dump_files() {
         fclose(rxv2_f[i]);
       if (RSSI_f[i] != NULL)
         fclose(RSSI_f[i]);
+      if (CCA_f[i] != NULL)
+        fclose(CCA_f[i]);
       if (modemrx_f[i] != NULL)
         fclose(modemrx_f[i]);
     }
@@ -266,12 +290,14 @@ int close_dump_files() {
     free(txv2_f);
     free(rxv2_f);
     free(RSSI_f);
+    free(CCA_f);
     free(modemrx_f);
     txv1_f = NULL;
     rxv1_f = NULL;
     txv2_f = NULL;
     rxv2_f = NULL;
     RSSI_f = NULL;
+    CCA_f = NULL;
     modemrx_f = NULL;
   }
 
@@ -407,14 +433,15 @@ void dump_rxv1(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
 
   stats[dev_nbr].nbr_rxv1++;
 
-  size_t size = 2048 + rx_st->rx_done_s.packet_size*3;
+  const uint dbufsi = 2048;
+  size_t size = dbufsi + rx_st->rx_done_s.packet_size*3;
 
   char to_print[ size + 1];
   p2G4_rxv2_t *req = &rx_st->rx_s;
   p2G4_rxv2_done_t *resp = &rx_st->rx_done_s;
   int printed;
 
-  printed = snprintf(to_print, 2048,
+  printed = snprintf(to_print, dbufsi,
                     "%"PRItime",%u,"
                     "0x%08X,%u,"
                     "%.6f,"
@@ -465,54 +492,53 @@ void dump_rxv2(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
 
   stats[dev_nbr].nbr_rxv2++;
 
-  size_t size = 3048 + rx_st->rx_done_s.packet_size*3;
+  const uint dbufsi = 2048; //The print below adds to 591 + commas, + a lot of margin for careless expansion
+  size_t size = dbufsi + rx_st->rx_done_s.packet_size*3;
 
   char to_print[ size + 1];
   p2G4_rxv2_t *req = &rx_st->rx_s;
   p2G4_rxv2_done_t *resp = &rx_st->rx_done_s;
   int printed;
 
-  printed = snprintf(to_print, 3048,
-                    "%"PRItime",%u,"
-                    "%u,\"[",
+  printed = snprintf(to_print, dbufsi,
+                    "%"PRItime",%u," //20chars + 10chars
+                    "%u,\"[",        //3 + (4+16*18)
                     req->start_time, req->scan_duration,
                     req->n_addr);
 
   for (int i = 0 ; i < req->n_addr ; i++) {
-    printed += snprintf(&to_print[printed], 3048-printed,
+    printed += snprintf(&to_print[printed], dbufsi - printed,
         "0x%08"PRIx64, (uint64_t)rx_st->phy_address[i]);
     if (i < (int)req->n_addr - 1) {
-      printed += snprintf(&to_print[printed], 3048-printed,
+      printed += snprintf(&to_print[printed], dbufsi - printed,
               ",");
     }
   }
 
+  printed += snprintf(&to_print[printed], dbufsi - printed,
+                    "]\", %u," //+4
+                    "%.6f,"    //10
+                    "%.6f,"    //10
 
+                    "%u,"      //10
+                    "%u,%u,"   //10+10
+                    "%u,"      //10
+                    "%u,%u,"   //10+10
+                    "%u,"      //3
+                    "%"PRItime",%"PRItime"," //20+20
 
-  printed += snprintf(&to_print[printed], 3048-printed,
-                    "]\", %u,"
-                    "%.6f,"
-                    "%.6f,"
+                    "%i,"      //10
+                    "0x%08"PRIx64"," //16
+                    "%u,"      //10
+                    "%"PRItime"," //20
+                    "%"PRItime"," //20
 
-                    "%u,"
-                    "%u,%u,"
-                    "%u,"
-                    "%u,%u,"
-                    "%u,"
-                    "%"PRItime",%"PRItime","
+                    "%"PRItime"," //20
+                    "%"PRItime"," //20
+                    "%u,"         //3
+                    "%.6f,"       //10
 
-                    "%i,"
-                    "0x%08"PRIx64","
-                    "%u,"
-                    "%"PRItime","
-                    "%"PRItime","
-
-                    "%"PRItime","
-                    "%"PRItime","
-                    "%u,"
-                    "%.6f,"
-
-                    "%u,",
+                    "%u,",        //10
                     req->radio_params.modulation,
                     p2G4_freq_to_d(req->radio_params.center_freq),
                     p2G4_power_to_d(req->antenna_gain),
@@ -561,14 +587,14 @@ void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint dev_n
 
   stats[dev_nbr].nbr_RSSI++;
 
-  size_t size = 1024;
+  size_t size = 512; //size below adds to a max of 53 chars + commas + a lot of margin for careless expansion
   char to_print[size +1];
 
   snprintf(to_print, size,
-      "%"PRItime","
-      "%u,%.6f,"
-      "%.6f,"
-      "%.6f",
+      "%"PRItime"," //20 chars
+      "%u,%.6f,"    //3+10
+      "%.6f,"       //10
+      "%.6f",       //10
       RSSI_req->meas_time,
       RSSI_req->radio_params.modulation,
       p2G4_freq_to_d(RSSI_req->radio_params.center_freq),
@@ -579,6 +605,68 @@ void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint dev_n
                    to_print, size, dev_nbr, "RSSI",
                    &stats[dev_nbr].nbr_RSSI_er,
                    stats[dev_nbr].nbr_RSSI);
+}
+
+
+void dump_cca(cca_status_t *cca, uint dev_nbr) {
+  if ( ( CCA_f == NULL ) || ( CCA_f[dev_nbr] == NULL ) ){
+    return;
+  }
+
+  stats[dev_nbr].nbr_CCA++;
+
+  size_t size = 512; //size below adds to a max of 180chars + commas + a lot of margin for careless expansion
+  char to_print[size +1];
+
+  snprintf(to_print, size,
+      "%"PRItime"," //20
+      "%u," //10
+      "%u," //10
+
+      "%u," //3
+      "%.6f," //10
+      "%.6f," //10
+
+      "%.6f," //10
+      "%.6f," //10
+      "%u,"   //3
+
+      "%"PRItime",%"PRItime"," //20+20
+
+      "%"PRItime"," //20
+      "%.6f," //10
+      "%.6f," //10
+      "%.6f," //10
+      "%u,%u" //2+2
+      ,
+
+      cca->req.start_time,
+      cca->req.scan_duration,
+      cca->req.scan_period,
+
+      cca->req.radio_params.modulation,
+      p2G4_freq_to_d(cca->req.radio_params.center_freq),
+      p2G4_power_to_d(cca->req.antenna_gain),
+
+      p2G4_power_to_d(cca->req.mod_threshold),
+      p2G4_power_to_d(cca->req.rssi_threshold),
+      cca->req.stop_when_found,
+
+      cca->req.abort.abort_time, cca->req.abort.recheck_time,
+
+      cca->resp.end_time,
+      p2G4_RSSI_value_to_dBm(cca->resp.RSSI_ave),
+      p2G4_RSSI_value_to_dBm(cca->resp.RSSI_max),
+      p2G4_RSSI_value_to_dBm(cca->resp.mod_rx_power),
+      cca->resp.mod_found, cca->resp.rssi_overthreshold
+      );
+
+
+
+  print_or_compare(&CCA_f[dev_nbr],
+                   to_print, size, dev_nbr, "CCA",
+                   &stats[dev_nbr].nbr_CCA_er,
+                   stats[dev_nbr].nbr_CCA);
 }
 
 void dump_ModemRx(bs_time_t CurrentTime, uint tx_nbr, uint dev_nbr, uint ndev, uint CalNotRecal, p2G4_radioparams_t *radio_p, rec_status_t *rx_st, tx_l_c_t *tx_l ){

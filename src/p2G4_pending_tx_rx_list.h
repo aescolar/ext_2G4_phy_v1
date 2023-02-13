@@ -136,6 +136,18 @@ typedef struct {
   bool v1_request;
 } rx_status_t;
 
+/**
+ * Search compatible (CCA) status (per device interface)
+ */
+typedef struct {
+  bs_time_t scan_end; //Last us (possibly included) in which we will scan
+  bs_time_t next_meas;//us in which the next measurement should be done
+  p2G4_cca_t req; //Search request parameters
+  p2G4_cca_done_t resp; //Response message (being prepared)
+  uint n_meas; //How many measurements have been done
+  double RSSI_acc;
+} cca_status_t;
+
 #ifdef __cplusplus
 }
 #endif
