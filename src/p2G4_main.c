@@ -369,8 +369,9 @@ static void f_rx_found(uint d){
     rx_status->payload_end = tx_s->end_packet_time;
     rx_status->biterrors = 0;
     rx_status->rx_done_s.phy_address = tx_s->phy_address;
+    rx_status->sync_start = tx_s->start_packet_time + rx_status->rx_s.acceptable_pre_truncation;
     bs_trace_raw_time(8,"Device %u - Matched Tx %u\n", d, tx_d);
-    fq_add(current_time, Rx_Sync, d);
+    fq_add(rx_status->sync_start, Rx_Sync, d);
     return;
   }
 
@@ -977,13 +978,11 @@ int main(int argc, char *argv[]) {
   return p2G4_main_clean_up();
 }
 
-/* TODO implement
+/* TODO
  *
  * v2 API proper impl. review + test
  * Update docs
  * type 2 header
- *
- * TODO: Change Rx search to start at last moment after found given the allowed preamble trunc instead of immediately
  *
  * TODO: enable Txv2 & Rxv2 dumps
  *

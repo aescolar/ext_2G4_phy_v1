@@ -123,6 +123,7 @@ typedef struct {
  */
 typedef struct {
   bs_time_t scan_end; //Last us (included) in which we will scan
+  bs_time_t sync_start; //When we try to start sync'ing (we delay it as much as possible into the amount of preamble the device does not need)
   bs_time_t sync_end; //Last us (included) in which the preamble + address ends
   bs_time_t header_end; //Last us (included) in which the header ends
   bs_time_t payload_end; //Last us (included) in which the payload ends
