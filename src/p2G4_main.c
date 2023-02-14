@@ -62,14 +62,25 @@ static void f_tx_end(uint d){
  * If something goes wrong it returns != 0, and the simulation shall be terminated
  */
 static int pick_and_validate_abort(uint d, p2G4_abort_t *ab, const char* type) {
+  int ret;
 
   bs_trace_raw_time(8,"Device %u - Reevaluating %s abort\n", d, type);
 
-  if ( p2G4_phy_get_new_abort(d, ab) != 0) {
-    bs_trace_raw_time(4,"Device %u terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
-    nbr_active_devs = 0;
-    return 1;
-  }
+  do {
+    ret = p2G4_phy_get_new_abort(d, ab);
+    if ( ret == PB_MSG_TERMINATE) {
+      bs_trace_raw_time(4,"Device %u terminated the simulation (there was %i left)\n", d, nbr_active_devs-1);
+      nbr_active_devs = 0;
+      return 1;
+    } else if ( ret == P2G4_MSG_RERESP_IMMRSSI ) {
+      p2G4_rssi_t rssi_req;
+      p2G4_rssi_done_t rssi_resp;
+
+      p2G4_phy_get(d, &rssi_req, sizeof(rssi_req));
+      chm_RSSImeas(&tx_l_c, rssi_req.antenna_gain, &rssi_req.radio_params, &rssi_resp, d, current_time);
+      p2G4_phy_resp_IMRSSI(d, &rssi_resp);
+    }
+  } while (ret != 0);
 
   if ( current_time > ab->abort_time ){
     bs_trace_error_time_line("Device %u requested %s abort in %"PRItime" which has passed\n", d, type, ab->abort_time);
@@ -979,14 +990,8 @@ int main(int argc, char *argv[]) {
 }
 
 /* TODO
- *
  * v2 API proper impl. review + test
  * Update docs
- * type 2 header
  *
- * TODO: enable Txv2 & Rxv2 dumps
- *
- * TODO: Add RSSI meas during Rx abort reeval
- *
- * TODO: Add v2 API functions (for device and Phy)
+ * TODO: enable Txv2, Rxv2 & CCA dumps
  * */
