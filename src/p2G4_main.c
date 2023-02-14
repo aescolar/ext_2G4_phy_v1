@@ -309,7 +309,7 @@ static void f_rx_search_start(uint d) {
     return;
   }
 
-  /* If we haven't found anything, we just */
+  /* If we haven't found anything, we just schedule a new event to wait until the end */
   rx_enqueue_search_reeval(d);
   return;
 }
@@ -372,6 +372,16 @@ static void f_rx_found(uint d){
   rx_status_t *rx_status = &rx_a[d];
   uint tx_d = rx_status->tx_nbr;
 
+  /*
+   * Improvement
+   *   There is a minor issue in this design, as rx_search_start will find the first packet
+   *   (even if it has way too low power, and lose the option to find others already ongoing).
+   *   And similarly several simultaneously starting Tx's will always lose to the one with
+   *   the bigger device number
+   *   Having rx_found actually go thru all possible Tx's until it syncs to one instead of
+   *   having its choice preselected would be better.
+   *   (This flaw existed also in the v1 API FSM version)
+   */
   if ( chm_is_packet_synched( &tx_l_c, tx_d, d,  &rx_status->rx_s, current_time ) )
   {
     p2G4_txv2_t *tx_s = &tx_l_c.tx_list[tx_d].tx_s;
@@ -382,7 +392,10 @@ static void f_rx_found(uint d){
     rx_status->rx_done_s.phy_address = tx_s->phy_address;
     rx_status->sync_start = tx_s->start_packet_time + rx_status->rx_s.acceptable_pre_truncation;
     bs_trace_raw_time(8,"Device %u - Matched Tx %u\n", d, tx_d);
-    fq_add(rx_status->sync_start, Rx_Sync, d);
+
+    bs_time_t next_time = BS_MIN(rx_status->sync_start, rx_status->rx_s.abort.recheck_time);
+    next_time = BS_MIN(next_time, rx_status->scan_end + 1);
+    fq_add(next_time, Rx_Sync, d);
     return;
   }
 
@@ -411,6 +424,15 @@ static void f_rx_sync(uint d){
 
   if ( current_time > rx_a[d].scan_end ) {
     rx_scan_ended(d, &rx_a[d], "Rx sync");
+    return;
+  }
+
+  if ( current_time < rx_a[d].sync_start ) {
+    //we are not yet meant to try to sync, but we got here due to an abort reeval (or abort) being earlier than the sync_start
+    //so we wait until we should
+    bs_time_t next_time = BS_MIN(rx_a[d].sync_start,rx_a[d].rx_s.abort.recheck_time);
+    next_time = BS_MIN(next_time, rx_a[d].scan_end + 1);
+    fq_add(next_time, Rx_Sync, d);
     return;
   }
 
@@ -602,6 +624,7 @@ static void f_cca_meas(uint d) {
 
       if (RSSI_meas.RSSI > req->rssi_threshold) {
         resp->rssi_overthreshold = true;
+        bs_trace_raw_time(8,"Device %u - RSSI over threshold \n", d);
         if (req->stop_when_found & 2) {
           cca_s->scan_end = current_time;
         }
@@ -616,6 +639,7 @@ static void f_cca_meas(uint d) {
         resp->mod_rx_power = BS_MAX(resp->mod_rx_power, power);
         if (power > req->mod_threshold) {
           resp->mod_found = true;
+          bs_trace_raw_time(8,"Device %u - Modulated signal over threshold \n", d);
           if (req->stop_when_found & 1) {
             cca_s->scan_end = current_time;
           }
@@ -628,6 +652,8 @@ static void f_cca_meas(uint d) {
   }
 
   if ( current_time >= cca_s->scan_end ) {
+    bs_trace_raw_time(8,"Device %u - CCA completed\n", d);
+
     resp->RSSI_ave = p2G4_RSSI_value_from_dBm(cca_a[d].RSSI_acc / cca_a[d].n_meas); //average the result
     resp->end_time = current_time;
     p2G4_phy_resp_cca(d, resp);
@@ -861,6 +887,9 @@ static void prepare_CCA(uint d){
   cca_a[d].RSSI_acc = 0;
 
   memset(&cca_a[d].resp, 0, sizeof(cca_a[d].resp));
+
+  bs_trace_raw_time(8,"Device %u wants to CCA starting in %"PRItime " every %u us; for %u us (abort,recheck at %"PRItime ",%"PRItime ")\n",
+                    d, cca_s->start_time, cca_s->scan_period, cca_s->scan_duration, cca_s->abort.abort_time, cca_s->abort.recheck_time);
 
   fq_add(cca_s->start_time, Rx_CCA_meas, d);
 }
