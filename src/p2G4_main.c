@@ -374,10 +374,10 @@ static void f_rx_found(uint d){
 
   /*
    * Improvement
-   *   There is a minor issue in this design, as rx_search_start will find the first packet
-   *   (even if it has way too low power, and lose the option to find others already ongoing).
-   *   And similarly several simultaneously starting Tx's will always lose to the one with
-   *   the bigger device number
+   *   There is a minor issue in this design, as rx_search_start will lock to the first matching Tx
+   *   (even if it has way too low power, and lose the option to find other already ongoing Tx).
+   *   And similarly several simultaneously starting Tx's in the same us will always lose to the
+   *   one with the bigger device number
    *   Having rx_found actually go thru all possible Tx's until it syncs to one instead of
    *   having its choice preselected would be better.
    *   (This flaw existed also in the v1 API FSM version)
@@ -1020,7 +1020,6 @@ int main(int argc, char *argv[]) {
 
 /* TODO
  * v2 API proper impl. review + test
- * Update docs
  *
  * TODO: enable Txv2, Rxv2 & CCA dumps
  * */
