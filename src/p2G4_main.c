@@ -385,7 +385,7 @@ static void f_rx_found(uint d){
   if ( chm_is_packet_synched( &tx_l_c, tx_d, d,  &rx_status->rx_s, current_time ) )
   {
     p2G4_txv2_t *tx_s = &tx_l_c.tx_list[tx_d].tx_s;
-    rx_status->sync_end    = tx_s->start_packet_time + rx_status->rx_s.pream_and_addr_duration - 1;
+    rx_status->sync_end    = tx_s->start_packet_time + BS_MAX((int)rx_status->rx_s.pream_and_addr_duration - 1,0);
     rx_status->header_end  = rx_status->sync_end + rx_status->rx_s.header_duration;
     rx_status->payload_end = tx_s->end_packet_time;
     rx_status->biterrors = 0;
@@ -493,10 +493,16 @@ static void f_rx_sync(uint d){
     }
 
     if (device_accepted) {
-      if ( rx_a[d].rx_s.header_duration == 0 ) {
-        fq_add(current_time + 1, Rx_Payload, d);
+      uint delta;
+      if ( rx_a[d].rx_s.pream_and_addr_duration == 0 ) {
+        delta = 0; //We pretend we have not spent time here
       } else {
-        fq_add(current_time + 1, Rx_Header, d);
+        delta = 1;
+      }
+      if ( rx_a[d].rx_s.header_duration == 0 ) {
+        fq_add(current_time + delta, Rx_Payload, d);
+      } else {
+        fq_add(current_time + delta, Rx_Header, d);
       }
     } else {
       dump_rx(&rx_a[d], tx_l_c.tx_list[rx_a[d].tx_nbr].packet, d);
@@ -784,7 +790,6 @@ static void prepare_RSSI(uint d){
   fq_add(RSSI_s.meas_time, RSSI_Meas, d);
 }
 
-
 static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
   PAST_CHECK(rxv2_s->start_time, d, "Rx");
 
@@ -792,6 +797,11 @@ static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
 
   bs_trace_raw_time(8,"Device %u wants to Rx in %"PRItime " (abort,recheck at %"PRItime ",%"PRItime ")\n",
                     d, rxv2_s->start_time, rxv2_s->abort.abort_time, rxv2_s->abort.recheck_time);
+
+  if (rxv2_s->prelocked_tx != 0) {
+    bs_trace_error_time_line("Device %u - Prelocked Tx not yet supported, must be set to 0 (was %u)\n",
+                             d, rxv2_s->prelocked_tx);
+  }
 
   //Initialize the reception status
   memcpy(&rx_a[d].rx_s, rxv2_s, sizeof(p2G4_rxv2_t));
@@ -851,8 +861,13 @@ static void prepare_rxv2(uint d){
         d, rxv2_s.resp_type);
   }
 
-  if ( rxv2_s.acceptable_pre_truncation >= rxv2_s.pream_and_addr_duration ) {
+  if ( ( rxv2_s.pream_and_addr_duration > 0 ) &&
+      ( rxv2_s.acceptable_pre_truncation >= rxv2_s.pream_and_addr_duration ) ) {
     bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation >= pream_and_addr_duration (%u >= %u)\n",
+        d, rxv2_s.acceptable_pre_truncation, rxv2_s.pream_and_addr_duration);
+  }
+  if ( rxv2_s.acceptable_pre_truncation > rxv2_s.pream_and_addr_duration ) {
+    bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation > pream_and_addr_duration (%u >= %u)\n",
         d, rxv2_s.acceptable_pre_truncation, rxv2_s.pream_and_addr_duration);
   }
 
@@ -1022,4 +1037,6 @@ int main(int argc, char *argv[]) {
  * v2 API proper impl. review + test
  *
  * TODO: enable Txv2, Rxv2 & CCA dumps
- * */
+ *
+ * TODO: implement prelocked_tx
+ */
