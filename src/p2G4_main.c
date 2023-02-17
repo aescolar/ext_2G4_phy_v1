@@ -1038,5 +1038,9 @@ int main(int argc, char *argv[]) {
  *
  * TODO: enable Txv2, Rxv2 & CCA dumps
  *
- * TODO: implement prelocked_tx
+ * Future features (see doc/Current_API_shortcommings.txt):
+ * implement prelocked_tx
+ * implement forced_packet_duration
+ * implement support for != coding_rate in Tx and Rx
+ * implement support for immediate bit error masks
  */

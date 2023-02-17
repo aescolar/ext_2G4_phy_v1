@@ -29,6 +29,8 @@ void map_rxv1_to_rxv2(p2G4_rxv2_t *rx_v2_s, p2G4_rx_t *rx_v1_s){
   rx_v2_s->resp_type = 0;
   rx_v2_s->n_addr = 1;
   rx_v2_s->prelocked_tx = 0;
+  rx_v2_s->coding_rate = 0;
+  rx_v2_s->forced_packet_duration = UINT32_MAX;
   memcpy(&rx_v2_s->radio_params, &rx_v1_s->radio_params, sizeof(p2G4_radioparams_t));
   memcpy(&rx_v2_s->abort, &rx_v1_s->abort, sizeof(p2G4_abort_t));
 }
@@ -41,6 +43,7 @@ void map_txv1_to_txv2(p2G4_txv2_t *tx_v2_s, p2G4_tx_t *tx_v1_s){
   tx_v2_s->phy_address = tx_v1_s->phy_address;
   tx_v2_s->packet_size = tx_v1_s->packet_size;
   tx_v2_s->power_level = tx_v1_s->power_level;
+  tx_v2_s->coding_rate = 0;
   memcpy(&tx_v2_s->radio_params, &tx_v1_s->radio_params, sizeof(p2G4_radioparams_t));
   memcpy(&tx_v2_s->abort, &tx_v1_s->abort, sizeof(p2G4_abort_t));
 }
