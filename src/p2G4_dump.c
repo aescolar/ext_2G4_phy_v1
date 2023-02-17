@@ -205,13 +205,13 @@ void open_dump_files(uint8_t comp_i, uint8_t stop, uint8_t dump_imm, const char*
 
     if (comp == 0) {
       if (dump_imm) {
-        setvbuf(txv1_f[i], NULL, _IOLBF, 0);
-        setvbuf(rxv1_f[i], NULL, _IOLBF, 0);
-        setvbuf(txv2_f[i], NULL, _IOLBF, 0);
-        setvbuf(rxv2_f[i], NULL, _IOLBF, 0);
-        setvbuf(RSSI_f[i], NULL, _IOLBF, 0);
-        setvbuf(CCA_f[i] , NULL, _IOLBF, 0);
-        setvbuf(modemrx_f[i], NULL, _IOLBF, 0);
+        if (txv1_f[i]) setvbuf(txv1_f[i], NULL, _IOLBF, 0);
+        if (rxv1_f[i]) setvbuf(rxv1_f[i], NULL, _IOLBF, 0);
+        if (txv2_f[i]) setvbuf(txv2_f[i], NULL, _IOLBF, 0);
+        if (rxv2_f[i]) setvbuf(rxv2_f[i], NULL, _IOLBF, 0);
+        if (RSSI_f[i]) setvbuf(RSSI_f[i], NULL, _IOLBF, 0);
+        if (CCA_f[i]) setvbuf(CCA_f[i] , NULL, _IOLBF, 0);
+        if (modemrx_f[i]) setvbuf(modemrx_f[i], NULL, _IOLBF, 0);
       }
       dump_txv1_heading(txv1_f[i]);
       dump_rxv1_heading(rxv1_f[i]);
