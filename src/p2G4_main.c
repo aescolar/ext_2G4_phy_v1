@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "bs_tracing.h"
 #include "bs_oswrap.h"
 #include "bs_utils.h"
@@ -625,10 +626,14 @@ static void f_cca_meas(uint d) {
   if ( current_time >= cca_s->next_meas ) {
     { //Check RSSI level
       chm_RSSImeas(&tx_l_c, req->antenna_gain, &req->radio_params, &RSSI_meas, d, current_time);
-      cca_a[d].RSSI_acc += p2G4_RSSI_value_to_dBm(RSSI_meas.RSSI);
+
+      double power = p2G4_RSSI_value_to_dBm(RSSI_meas.RSSI);
+      power = pow(10, power/10);
+      cca_s->RSSI_acc += power;
+
       resp->RSSI_max = BS_MAX(resp->RSSI_max, RSSI_meas.RSSI);
 
-      if (RSSI_meas.RSSI > req->rssi_threshold) {
+      if (RSSI_meas.RSSI >= req->rssi_threshold) {
         resp->rssi_overthreshold = true;
         bs_trace_raw_time(8,"Device %u - RSSI over threshold \n", d);
         if (req->stop_when_found & 2) {
@@ -643,7 +648,7 @@ static void f_cca_meas(uint d) {
       if (tx_match >= 0){
         p2G4_power_t power = p2G4_RSSI_value_to_dBm(RSSI_meas.RSSI);
         resp->mod_rx_power = BS_MAX(resp->mod_rx_power, power);
-        if (power > req->mod_threshold) {
+        if (power >= req->mod_threshold) {
           resp->mod_found = true;
           bs_trace_raw_time(8,"Device %u - Modulated signal over threshold \n", d);
           if (req->stop_when_found & 1) {
@@ -654,16 +659,17 @@ static void f_cca_meas(uint d) {
     }
 
     cca_s->next_meas += req->scan_period;
-    cca_a[d].n_meas++;
+    cca_s->n_meas++;
   }
 
   if ( current_time >= cca_s->scan_end ) {
     bs_trace_raw_time(8,"Device %u - CCA completed\n", d);
 
-    resp->RSSI_ave = p2G4_RSSI_value_from_dBm(cca_a[d].RSSI_acc / cca_a[d].n_meas); //average the result
+    double power_dBm = 10*log10(cca_s->RSSI_acc/cca_s->n_meas);
+    resp->RSSI_ave = p2G4_RSSI_value_from_dBm(power_dBm); //average the result
     resp->end_time = current_time;
     p2G4_phy_resp_cca(d, resp);
-    dump_cca(&cca_a[d], d);
+    dump_cca(cca_s, d);
     p2G4_handle_next_request(d);
     return;
   }
@@ -878,35 +884,36 @@ static void prepare_rxv2(uint d){
 }
 
 static void prepare_CCA(uint d){
-  p2G4_cca_t *cca_s = &cca_a[d].req;
+  p2G4_cca_t *cca_req = &cca_a[d].req;
 
-  memset(&cca_a[d], 0, sizeof(p2G4_cca_t));
+  //Clear status (and response)
+  memset(&cca_a[d], 0, sizeof(cca_status_t));
 
-  p2G4_phy_get(d, &cca_s, sizeof(p2G4_cca_t));
+  p2G4_phy_get(d, cca_req, sizeof(p2G4_cca_t));
 
-  PAST_CHECK(cca_s->start_time, d, "CCA");
+  PAST_CHECK(cca_req->start_time, d, "CCA");
 
-  check_valid_abort(&cca_s->abort, cca_s->start_time , "CCA", d);
+  check_valid_abort(&cca_req->abort, cca_req->start_time , "CCA", d);
 
-  if ( cca_s->scan_period == 0 ){
+  if ( cca_req->scan_period == 0 ){
     bs_trace_error_time_line("Device %u: scan period must be bigger than 0\n", d);
   }
 
-  if ( cca_s->stop_when_found > 3 ){
+  if ( cca_req->stop_when_found > 3 ){
     bs_trace_error_time_line("Device %u: Attempting to CCA w stop_when_found %u > 3 (not supported)\n",
-           d, cca_s->stop_when_found);
+           d, cca_req->stop_when_found);
   }
 
-  cca_a[d].scan_end = cca_s->start_time + cca_s->scan_duration -1;
-  cca_a[d].next_meas = cca_s->start_time;
+  cca_a[d].scan_end = cca_req->start_time + cca_req->scan_duration -1;
+  cca_a[d].next_meas = cca_req->start_time;
   cca_a[d].RSSI_acc = 0;
-
-  memset(&cca_a[d].resp, 0, sizeof(cca_a[d].resp));
+  cca_a[d].resp.RSSI_max = P2G4_RSSI_POWER_MIN;
+  cca_a[d].resp.mod_rx_power = P2G4_RSSI_POWER_MIN;
 
   bs_trace_raw_time(8,"Device %u wants to CCA starting in %"PRItime " every %u us; for %u us (abort,recheck at %"PRItime ",%"PRItime ")\n",
-                    d, cca_s->start_time, cca_s->scan_period, cca_s->scan_duration, cca_s->abort.abort_time, cca_s->abort.recheck_time);
+                    d, cca_req->start_time, cca_req->scan_period, cca_req->scan_duration, cca_req->abort.abort_time, cca_req->abort.recheck_time);
 
-  fq_add(cca_s->start_time, Rx_CCA_meas, d);
+  fq_add(cca_req->start_time, Rx_CCA_meas, d);
 }
 
 static void p2G4_handle_next_request(uint d) {

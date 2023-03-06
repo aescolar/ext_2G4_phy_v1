@@ -146,7 +146,7 @@ typedef struct {
   p2G4_cca_t req; //Search request parameters
   p2G4_cca_done_t resp; //Response message (being prepared)
   uint n_meas; //How many measurements have been done
-  double RSSI_acc;
+  double RSSI_acc; //power in mW (natural units)
 } cca_status_t;
 
 #ifdef __cplusplus
