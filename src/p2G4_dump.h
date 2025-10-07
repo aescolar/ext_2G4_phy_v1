@@ -51,7 +51,7 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint d);
 /**
  * Write to file information about a completed RSSI measurement
  */
-void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint d);
+void dump_RSSImeas(p2G4_rssiv2_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint d);
 
 /**
  * Write to file information about a completed CCA check

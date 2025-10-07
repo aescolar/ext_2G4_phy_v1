@@ -355,7 +355,7 @@ void dump_txv1(tx_el_t *tx, uint dev_nbr) {
   stats[dev_nbr].nbr_txv1++;
 
   size_t size = 1024 + tx->tx_s.packet_size*3+1;
-  p2G4_txv2_t *txs = &tx->tx_s;
+  p2G4_tx2v1_t *txs = &tx->tx_s;
   char to_print[size];
   int printed;
   printed = snprintf(to_print, 1024,
@@ -366,7 +366,7 @@ void dump_txv1(tx_el_t *tx, uint dev_nbr) {
                     "%"PRItime",%"PRItime","
                     "%u,",
                     txs->start_tx_time, txs->end_tx_time,
-                    p2G4_freq_to_d(txs->radio_params.center_freq),
+                    p2G4_freq2_to_d(txs->radio_params.center_freq) - P2G4_freq_STARTF,
                     (uint32_t)txs->phy_address, txs->radio_params.modulation,
                     p2G4_power_to_d(txs->power_level),
                     txs->abort.abort_time, txs->abort.recheck_time,
@@ -392,7 +392,7 @@ void dump_txv2(tx_el_t *tx, uint dev_nbr) {
   stats[dev_nbr].nbr_txv2++;
 
   size_t size = 1024 + tx->tx_s.packet_size*3+1;
-  p2G4_txv2_t *txs = &tx->tx_s;
+  p2G4_tx2v1_t *txs = &tx->tx_s;
   char to_print[size];
   int printed;
   printed = snprintf(to_print, 1024,
@@ -406,7 +406,7 @@ void dump_txv2(tx_el_t *tx, uint dev_nbr) {
                     "%u,",
                     txs->start_tx_time, txs->end_tx_time,
                     txs->start_packet_time, txs->end_packet_time,
-                    p2G4_freq_to_d(txs->radio_params.center_freq),
+                    p2G4_freq2_to_d(txs->radio_params.center_freq),
                     (uint32_t)txs->phy_address, txs->radio_params.modulation,
                     txs->coding_rate,
                     p2G4_power_to_d(txs->power_level),
@@ -442,7 +442,7 @@ void dump_rxv1(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
   size_t size = dbufsi + rx_st->rx_done_s.packet_size*3;
 
   char to_print[ size + 1];
-  p2G4_rxv2_t *req = &rx_st->rx_s;
+  p2G4_rx2v1_t *req = &rx_st->rx_s;
   p2G4_rxv2_done_t *resp = &rx_st->rx_done_s;
   int printed;
 
@@ -460,7 +460,7 @@ void dump_rxv1(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
                     "%u,",
                     req->start_time, req->scan_duration,
                     (uint32_t)rx_st->phy_address[0], req->radio_params.modulation,
-                    p2G4_freq_to_d(req->radio_params.center_freq),
+                    p2G4_freq2_to_d(req->radio_params.center_freq) - P2G4_freq_STARTF,
                     p2G4_power_to_d(req->antenna_gain),
                     req->sync_threshold, req->header_threshold,
                     req->pream_and_addr_duration,
@@ -501,7 +501,7 @@ void dump_rxv2(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
   size_t size = dbufsi + rx_st->rx_done_s.packet_size*3;
 
   char to_print[ size + 1];
-  p2G4_rxv2_t *req = &rx_st->rx_s;
+  p2G4_rx2v1_t *req = &rx_st->rx_s;
   p2G4_rxv2_done_t *resp = &rx_st->rx_done_s;
   int printed;
 
@@ -551,7 +551,7 @@ void dump_rxv2(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr){
 
                     "%u,",        //10
                     req->radio_params.modulation,
-                    p2G4_freq_to_d(req->radio_params.center_freq),
+                    p2G4_freq2_to_d(req->radio_params.center_freq),
                     p2G4_power_to_d(req->antenna_gain),
 
                     req->acceptable_pre_truncation,
@@ -597,7 +597,7 @@ void dump_rx(rx_status_t *rx_st, uint8_t* packet, uint dev_nbr) {
   dump_rxv2(rx_st, packet, dev_nbr);
 }
 
-void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint dev_nbr){
+void dump_RSSImeas(p2G4_rssiv2_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint dev_nbr){
   if ( ( RSSI_f == NULL ) || ( RSSI_f[dev_nbr] == NULL ) ){
     return;
   }
@@ -614,7 +614,7 @@ void dump_RSSImeas(p2G4_rssi_t *RSSI_req, p2G4_rssi_done_t* RSSI_res, uint dev_n
       "%.6f",       //10
       RSSI_req->meas_time,
       RSSI_req->radio_params.modulation,
-      p2G4_freq_to_d(RSSI_req->radio_params.center_freq),
+      p2G4_freq2_to_d(RSSI_req->radio_params.center_freq) - P2G4_freq_STARTF,
       p2G4_power_to_d(RSSI_req->antenna_gain),
       p2G4_RSSI_value_to_dBm(RSSI_res->RSSI));
 
@@ -662,7 +662,7 @@ void dump_cca(cca_status_t *cca, uint dev_nbr) {
       cca->req.scan_period,
 
       cca->req.radio_params.modulation,
-      p2G4_freq_to_d(cca->req.radio_params.center_freq),
+      p2G4_freq2_to_d(cca->req.radio_params.center_freq),
       p2G4_power_to_d(cca->req.antenna_gain),
 
       p2G4_RSSI_value_to_dBm(cca->req.mod_threshold),
@@ -707,7 +707,7 @@ void dump_ModemRx(bs_time_t CurrentTime, uint tx_nbr, uint dev_nbr, uint ndev, u
                           tx_nbr,
 
                           CalNotRecal,
-                          p2G4_freq_to_d(modem_p->center_freq),
+                          p2G4_freq2_to_d(modem_p->center_freq),
                           modem_p->modulation,
 
                           modem_p->coding_rate,

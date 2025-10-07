@@ -52,7 +52,7 @@ void* modem_init(int argc, char *argv[], uint dev_nbr, uint nbr_devices);
  *  OutputSNR               : SNR in the analog output / digital input of this modem (dB)
  *  Output_RSSI_power_level : RSSI level (analog, dBm) sent to the modem digital
  */
-void modem_analog_rx(void *this, p2G4_radioparams_t *rx_radioparams, double *OutputSNR,double *Output_RSSI_power_level,
+void modem_analog_rx(void *this, p2G4_radioparamsv2_t *rx_radioparams, double *OutputSNR,double *Output_RSSI_power_level,
                      double *rx_powers, tx_l_c_t *txl_c, uint desired_tx_nbr);
 
 /**
@@ -78,7 +78,7 @@ uint32_t modem_digital_perf_ber(void *this, p2G4_modemdigparams_t *rx_modemparam
  *  SNR            : SNR level at the analog output as calculated by modem_analog_rx()
  *  tx_s           : Parameters of the transmission we are receiving (in case the sync. probability depends on any of them)
  */
-uint32_t modem_digital_perf_sync(void *this, p2G4_modemdigparams_t *rx_modemparams, double SNR, p2G4_txv2_t* tx_s);
+uint32_t modem_digital_perf_sync(void *this, p2G4_modemdigparams_t *rx_modemparams, double SNR, p2G4_tx2v1_t* tx_s);
 
 /**
  * Return the digital RSSI value the modem would have produced for this given
@@ -92,7 +92,7 @@ uint32_t modem_digital_perf_sync(void *this, p2G4_modemdigparams_t *rx_modempara
  * outputs:
  *  RSSI  : RSSI "digital" value returned by this modem, following the p2G4_rssi_power_t format (16.16 signed value) *
  */
-void modem_digital_RSSI(void *this, p2G4_radioparams_t *rx_radioparams, double RSSI_power_level, p2G4_rssi_power_t *RSSI);
+void modem_digital_RSSI(void *this, p2G4_radioparamsv2_t *rx_radioparams, double RSSI_power_level, p2G4_rssi_power_t *RSSI);
 
 /**
  * Clean up: Free the memory the modem may have allocated

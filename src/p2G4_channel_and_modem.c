@@ -55,10 +55,10 @@ static cha_delete_f channel_delete;
 
 typedef void*  (*m_init_f)(int argc, char *argv[], uint dev_nbr, uint n_devs);
 typedef void   (*m_delete_f)(void *m_obj);
-typedef void   (*m_analog_rx_f)(void *m_obj, p2G4_radioparams_t *radio_params, double *OutputSNR,double *Output_RSSI_power_level, double *rx_pow, tx_l_c_t *txl_c, uint tx_nbr);
-typedef uint32_t (*m_dig_perf_sync_f)(void *m_obj, p2G4_modemdigparams_t *modem_params, double SNR, p2G4_txv2_t* tx_s);
+typedef void   (*m_analog_rx_f)(void *m_obj, p2G4_radioparamsv2_t *radio_params, double *OutputSNR,double *Output_RSSI_power_level, double *rx_pow, tx_l_c_t *txl_c, uint tx_nbr);
+typedef uint32_t (*m_dig_perf_sync_f)(void *m_obj, p2G4_modemdigparams_t *modem_params, double SNR, p2G4_tx2v1_t* tx_s);
 typedef uint32_t (*m_dig_perf_ber_f)(void *m_obj, p2G4_modemdigparams_t *modem_params, double SNR);
-typedef uint32_t (*m_dig_RSSI_f)(void *m_obj, p2G4_radioparams_t *radio_params, double RSSI_power_level, p2G4_rssi_power_t* RSSI);
+typedef uint32_t (*m_dig_RSSI_f)(void *m_obj, p2G4_radioparamsv2_t *radio_params, double RSSI_power_level, p2G4_rssi_power_t* RSSI);
 
 static m_init_f          *m_init      = NULL;
 static m_delete_f        *m_delete    = NULL;
@@ -308,7 +308,7 @@ uint chm_is_packet_synched(tx_l_c_t *tx_l, uint tx_nbr, uint rx_nbr, rx_status_t
 /**
  * What RSSI power will the device <rx_nbr> measure in this instant
  */
-void chm_RSSImeas(tx_l_c_t *tx_l, p2G4_power_t rx_antenna_gain, p2G4_radioparams_t *rx_radio_params , p2G4_rssi_done_t* RSSI_meas, uint rx_nbr, bs_time_t current_time){
+void chm_RSSImeas(tx_l_c_t *tx_l, p2G4_power_t rx_antenna_gain, p2G4_radioparamsv2_t *rx_radio_params , p2G4_rssi_done_t* RSSI_meas, uint rx_nbr, bs_time_t current_time){
   rec_status_t *rec_s = &rec_status[rx_nbr];
   p2G4_rssi_power_t RSSI;
 

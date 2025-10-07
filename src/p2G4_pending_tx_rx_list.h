@@ -18,7 +18,7 @@ extern "C" {
  * For each device, current/next transmission parameters and packet
  */
 typedef struct {
-  p2G4_txv2_t tx_s;
+  p2G4_tx2v1_t tx_s;
   uint8_t *packet;
 } tx_el_t;
 
@@ -62,7 +62,7 @@ void txl_free(void);
  * @param tx_s Transmission parameters
  * @param packet Pointer to the transmitted packet
  */
-void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet);
+void txl_register(uint d, p2G4_tx2v1_t *tx_s, uint8_t* packet);
 
 /**
  * Remove a transmission from the list
@@ -128,7 +128,7 @@ typedef struct {
   bs_time_t sync_end; //Last us (included) in which the preamble + address ends
   bs_time_t header_end; //Last us (included) in which the header ends
   bs_time_t payload_end; //Last us (included) in which the payload ends
-  p2G4_rxv2_t rx_s; //Reception request parameters
+  p2G4_rx2v1_t rx_s; //Reception request parameters
   p2G4_rxv2_done_t rx_done_s; //Response message (being prepared)
   p2G4_modemdigparams_t rx_modem_params; //Parameters we are passing to the modem digital model for this reception
   int tx_nbr; //If we found a fitting Tx, which is its device number
@@ -146,7 +146,7 @@ typedef struct {
 typedef struct {
   bs_time_t scan_end; //Last us (possibly included) in which we will scan
   bs_time_t next_meas;//us in which the next measurement should be done
-  p2G4_cca_t req; //Search request parameters
+  p2G4_ccav2_t req; //Search request parameters
   p2G4_cca_done_t resp; //Response message (being prepared)
   uint n_meas; //How many measurements have been done
   double RSSI_acc; //power in mW (natural units)

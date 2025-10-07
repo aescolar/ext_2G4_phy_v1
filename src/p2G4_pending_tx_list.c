@@ -41,9 +41,9 @@ void txl_free(void){
  * Register a tx which has just been initiated by a device
  * Note that the tx itself does not start yet (when that happens txl_activate() should be called)
  */
-void txl_register(uint d, p2G4_txv2_t *tx_s, uint8_t* packet){
+void txl_register(uint d, p2G4_tx2v1_t *tx_s, uint8_t* packet){
   tx_l_c.used[d] = TXS_OFF;
-  memcpy(&(tx_list[d].tx_s), tx_s, sizeof(p2G4_txv2_t) );
+  memcpy(&(tx_list[d].tx_s), tx_s, sizeof(p2G4_tx2v1_t) );
   tx_list[d].packet = packet;
 }
 

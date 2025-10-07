@@ -20,7 +20,7 @@ typedef struct __attribute__ ((packed)) {
   /* One of P2G4_MOD_* */
   p2G4_modulation_t modulation;
   /* Carrier frequency */
-  p2G4_freq_t  center_freq;
+  p2G4_freq2_t center_freq;
   /* Coding rate */
   uint16_t coding_rate;
 } p2G4_modemdigparams_t;

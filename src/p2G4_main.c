@@ -24,7 +24,7 @@
 static bs_time_t current_time = 0;
 static int nbr_active_devs; //How many devices are still active (devices may disconnect during the simulation)
 extern tx_l_c_t tx_l_c; //list of all transmissions
-static p2G4_rssi_t *RSSI_a; //array of all RSSI measurements
+static p2G4_rssiv2_t *RSSI_a; //array of all RSSI measurements
 static rx_status_t *rx_a; //array of all receptions
 static cca_status_t *cca_a; //array of all "compatible" searches
 static p2G4_args_t args;
@@ -100,7 +100,7 @@ static int pick_and_validate_abort(uint d, p2G4_abort_t *ab, const char* type) {
       return PB_MSG_DISCONNECT;
     } else if ( ret == P2G4_MSG_RERESP_IMMRSSI ) {
       bs_trace_raw_time(4,"Device %u requested an immediate RSSI measurement\n", d);
-      p2G4_rssi_t rssi_req;
+      p2G4_rssiv2_t rssi_req;
       p2G4_rssi_done_t rssi_resp;
 
       p2G4_phy_get(d, &rssi_req, sizeof(rssi_req));
@@ -129,7 +129,7 @@ static int pick_and_validate_abort_Rxcont(uint d, p2G4_abort_t *ab) {
  * Check if this Tx and Rx match
  * and return true if found, false otherwise
  */
-static bool tx_and_rx_match(const p2G4_txv2_t *tx_s, rx_status_t *rx_st)
+static bool tx_and_rx_match(const p2G4_tx2v1_t *tx_s, rx_status_t *rx_st)
 {
   if ((tx_s->radio_params.center_freq == rx_st->rx_s.radio_params.center_freq) &&
      (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
@@ -159,7 +159,7 @@ static bool tx_and_rx_match(const p2G4_txv2_t *tx_s, rx_status_t *rx_st)
  * All devices which may be able to receive this transmission are moved
  * to the Rx_Found state, where they may start synchronizing to it
  */
-static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
+static void find_and_activate_rx(const p2G4_tx2v1_t *tx_s, uint tx_d) {
   for (int rx_d = 0 ; rx_d < args.n_devs; rx_d++) {
     rx_status_t *rx_s = &rx_a[rx_d];
     if ( rx_s->state == Rx_State_Searching &&
@@ -171,13 +171,13 @@ static void find_and_activate_rx(const p2G4_txv2_t *tx_s, uint tx_d) {
   }
 }
 
-static void tx_start_packet_common(p2G4_txv2_t* tx_s, uint d){
+static void tx_start_packet_common(p2G4_tx2v1_t* tx_s, uint d){
   txl_start_packet(d);
   bs_trace_raw_time(8,"Device %u - Tx packet start\n", d);
   find_and_activate_rx(tx_s, d);
 }
 
-static void tx_schedule_next_event(p2G4_txv2_t* tx_s, uint d){
+static void tx_schedule_next_event(p2G4_tx2v1_t* tx_s, uint d){
   bs_time_t TxEndt, NextTime;
   bs_time_t Packet_start_time;
   bs_time_t Packet_end_time = TIME_NEVER; /*Must be later than Packet_start_time*/
@@ -212,7 +212,7 @@ static void tx_schedule_next_event(p2G4_txv2_t* tx_s, uint d){
 }
 
 static void f_tx_start(uint d) {
-  p2G4_txv2_t* tx_s;
+  p2G4_tx2v1_t* tx_s;
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
   txl_start_tx(d);
@@ -228,7 +228,7 @@ static void f_tx_start(uint d) {
 }
 
 static void f_tx_abort_reeval(uint d){
-  p2G4_txv2_t* tx_s;
+  p2G4_tx2v1_t* tx_s;
 
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
@@ -243,7 +243,7 @@ static void f_tx_abort_reeval(uint d){
 }
 
 static void f_tx_packet_start(uint d){
-  p2G4_txv2_t* tx_s;
+  p2G4_tx2v1_t* tx_s;
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
   tx_start_packet_common(tx_s, d);
@@ -251,7 +251,7 @@ static void f_tx_packet_start(uint d){
 }
 
 static void f_tx_packet_end(uint d){
-  p2G4_txv2_t* tx_s;
+  p2G4_tx2v1_t* tx_s;
   tx_s = &tx_l_c.tx_list[d].tx_s;
 
   bs_trace_raw_time(8,"Device %u - Tx packet end\n", d);
@@ -464,7 +464,7 @@ static void f_rx_found(uint d){
   if ((rx_status->rx_s.prelocked_tx)
       || (chm_is_packet_synched( &tx_l_c, tx_d, d, rx_status, current_time ) ))
   {
-    p2G4_txv2_t *tx_s = &tx_l_c.tx_list[tx_d].tx_s;
+    p2G4_tx2v1_t *tx_s = &tx_l_c.tx_list[tx_d].tx_s;
     rx_status->sync_end    = tx_s->start_packet_time + BS_MAX((int)rx_status->rx_s.pream_and_addr_duration - 1,0);
     rx_status->header_end  = rx_status->sync_end + rx_status->rx_s.header_duration;
     rx_status->payload_end = tx_s->end_packet_time;
@@ -693,13 +693,13 @@ static void f_rx_payload(uint d){
  * b) we do not check the address
  * c) we do not check where in the transmittion we may be
  */
-static int find_fitting_tx_cca(p2G4_cca_t *req){
+static int find_fitting_tx_cca(p2G4_ccav2_t *req){
   register uint *used = tx_l_c.used;
   int max_tx = txl_get_max_tx_nbr();
   for (int i = 0 ; i <= max_tx; i++) {
     if (used[i] != TXS_OFF)
     {
-      p2G4_txv2_t* tx_s = &tx_l_c.tx_list[i].tx_s;
+      p2G4_tx2v1_t* tx_s = &tx_l_c.tx_list[i].tx_s;
       if ((tx_s->radio_params.center_freq == req->radio_params.center_freq) &&
          (tx_s->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) ==
              (req->radio_params.modulation & P2G4_MOD_SIMILAR_MASK) )
@@ -714,7 +714,7 @@ static int find_fitting_tx_cca(p2G4_cca_t *req){
 
 static void f_cca_meas(uint d) {
   cca_status_t *cca_s = &cca_a[d];
-  p2G4_cca_t *req = &cca_a[d].req;
+  p2G4_ccav2_t *req = &cca_a[d].req;
   p2G4_cca_done_t *resp = &cca_a[d].resp;
   p2G4_rssi_done_t RSSI_meas;
 
@@ -832,7 +832,7 @@ static void check_valid_abort(p2G4_abort_t *abort, bs_time_t start_time, const c
   }
 }
 
-static void prepare_tx_common(uint d, p2G4_txv2_t *tx_s){
+static void prepare_tx_common(uint d, p2G4_tx2v1_t *tx_s){
   uint8_t *data = NULL;
 
   if ( tx_s->packet_size > 0 ){
@@ -870,54 +870,77 @@ static void prepare_tx_common(uint d, p2G4_txv2_t *tx_s){
 }
 
 static void prepare_txv2(uint d){
-  p2G4_txv2_t tx_s;
+  p2G4_txv2_t txv2_s;
+  p2G4_tx2v1_t tx2v1_s;
 
-  p2G4_phy_get(d, &tx_s, sizeof(tx_s));
+  p2G4_phy_get(d, &txv2_s, sizeof(txv2_s));
+  map_txv2_to_tx2v1(&tx2v1_s, &txv2_s);
 
-  prepare_tx_common(d, &tx_s);
+  prepare_tx_common(d, &tx2v1_s);
+}
+
+static void prepare_tx2v1(uint d){
+  p2G4_tx2v1_t tx2v1_s;
+
+  p2G4_phy_get(d, &tx2v1_s, sizeof(tx2v1_s));
+
+  prepare_tx_common(d, &tx2v1_s);
 }
 
 static void prepare_txv1(uint d){
   p2G4_tx_t tx_s;
-  p2G4_txv2_t tx_v2_s;
+  p2G4_tx2v1_t tx_2v1_s;
 
   p2G4_phy_get(d, &tx_s, sizeof(tx_s));
-  map_txv1_to_txv2(&tx_v2_s, &tx_s);
+  map_txv1_to_tx2v1(&tx_2v1_s, &tx_s);
 
-  prepare_tx_common(d, &tx_v2_s);
+  prepare_tx_common(d, &tx_2v1_s);
+}
+
+static void prepare_RSSI_common(uint d, p2G4_rssiv2_t *RSSIv2_s){
+
+  PAST_CHECK(RSSIv2_s->meas_time, d, "RSSI measurement");
+
+  bs_trace_raw_time(8,"Device %u want to do a RSSI measurement in %"PRItime "\n", \
+                    d,  RSSIv2_s->meas_time); \
+
+  memcpy(&RSSI_a[d], RSSIv2_s, sizeof(p2G4_rssiv2_t));
+
+  fq_add(RSSIv2_s->meas_time, RSSI_Meas, d);
 }
 
 static void prepare_RSSI(uint d){
   p2G4_rssi_t RSSI_s;
+  p2G4_rssiv2_t RSSIv2_s;
 
   p2G4_phy_get(d, &RSSI_s, sizeof(RSSI_s));
-
-  PAST_CHECK(RSSI_s.meas_time, d, "RSSI measurement");
-
-  bs_trace_raw_time(8,"Device %u want to do a RSSI measurement in %"PRItime "\n", \
-                    d,  RSSI_s.meas_time); \
-
-  memcpy(&RSSI_a[d],&RSSI_s, sizeof(p2G4_rssi_t));
-
-  fq_add(RSSI_s.meas_time, RSSI_Meas, d);
+  map_rssiv1_to_rssiv2(&RSSIv2_s, &RSSI_s);
+  prepare_RSSI_common(d, &RSSIv2_s);
 }
 
-static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
-  PAST_CHECK(rxv2_s->start_time, d, "Rx");
+static void prepare_RSSIv2(uint d){
+  p2G4_rssiv2_t RSSIv2_s;
 
-  check_valid_abort(&rxv2_s->abort, rxv2_s->start_time , "Rx", d);
+  p2G4_phy_get(d, &RSSIv2_s, sizeof(RSSIv2_s));
+  prepare_RSSI_common(d, &RSSIv2_s);
+}
+
+static void prepare_rx_common(uint d, p2G4_rx2v1_t *rx_s){
+  PAST_CHECK(rx_s->start_time, d, "Rx");
+
+  check_valid_abort(&rx_s->abort, rx_s->start_time , "Rx", d);
 
   bs_trace_raw_time(8,"Device %u wants to Rx in %"PRItime " (abort,recheck at %"PRItime ",%"PRItime ")\n",
-                    d, rxv2_s->start_time, rxv2_s->abort.abort_time, rxv2_s->abort.recheck_time);
+                    d, rx_s->start_time, rx_s->abort.abort_time, rx_s->abort.recheck_time);
 
   rx_status_t *rx_status = &rx_a[d];
 
   //Initialize the reception status
-  memcpy(&rx_status->rx_s, rxv2_s, sizeof(p2G4_rxv2_t));
+  memcpy(&rx_status->rx_s, rx_s, sizeof(p2G4_rx2v1_t));
 
-  rx_status->rx_modem_params.modulation = rxv2_s->radio_params.modulation;
-  rx_status->rx_modem_params.center_freq = rxv2_s->radio_params.center_freq;
-  rx_status->rx_modem_params.coding_rate = rxv2_s->coding_rate;
+  rx_status->rx_modem_params.modulation = rx_s->radio_params.modulation;
+  rx_status->rx_modem_params.center_freq = rx_s->radio_params.center_freq;
+  rx_status->rx_modem_params.coding_rate = rx_s->coding_rate;
 
   if (rx_status->rx_s.scan_duration < UINT32_MAX) {
     rx_status->scan_end = rx_status->rx_s.start_time + rx_status->rx_s.scan_duration - 1;
@@ -927,28 +950,28 @@ static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
   rx_status->sync_end = 0;
   rx_status->header_end = 0;
   rx_status->payload_end = 0;
-  if (!rxv2_s->prelocked_tx) {
+  if (!rx_s->prelocked_tx) {
     rx_status->tx_nbr = -1;
   }
   rx_status->biterrors = 0;
   memset(&rx_status->rx_done_s, 0, sizeof(p2G4_rxv2_done_t));
-  if ( rxv2_s->abort.abort_time < rx_status->scan_end ) {
-    rx_status->scan_end = rxv2_s->abort.abort_time - 1;
+  if ( rx_s->abort.abort_time < rx_status->scan_end ) {
+    rx_status->scan_end = rx_s->abort.abort_time - 1;
   }
 
-  if (rxv2_s->error_calc_rate % 1000000 == 0) {
-    rx_status->err_calc_state.errorspercalc = rxv2_s->error_calc_rate / 1000000;
+  if (rx_s->error_calc_rate % 1000000 == 0) {
+    rx_status->err_calc_state.errorspercalc = rx_s->error_calc_rate / 1000000;
     rx_status->err_calc_state.rate_uspercalc = 1;
     rx_status->err_calc_state.us_to_next_calc = 0;
-  } else if (1000000 % rxv2_s->error_calc_rate == 0) {
+  } else if (1000000 % rx_s->error_calc_rate == 0) {
     rx_status->err_calc_state.errorspercalc = 1;
-    rx_status->err_calc_state.rate_uspercalc = 1000000 / rxv2_s->error_calc_rate;
+    rx_status->err_calc_state.rate_uspercalc = 1000000 / rx_s->error_calc_rate;
     rx_status->err_calc_state.us_to_next_calc = 0;
   } else {
     bool found = false;
     for (int t = 2; t < 5; t++) {
-      if (rxv2_s->error_calc_rate*t % 1000000 == 0) {
-        rx_status->err_calc_state.errorspercalc = t*rxv2_s->error_calc_rate / 1000000;
+      if (rx_s->error_calc_rate*t % 1000000 == 0) {
+        rx_status->err_calc_state.errorspercalc = t*rx_s->error_calc_rate / 1000000;
         rx_status->err_calc_state.rate_uspercalc = t;
         rx_status->err_calc_state.us_to_next_calc = 0;
         found = true;
@@ -960,65 +983,80 @@ static void prepare_rx_common(uint d, p2G4_rxv2_t *rxv2_s){
                                "of %u times per s, but only integer dividers of 1MHz "
                                "or integer multiples of 250KHz or 333KHz "
                                "are supported so far (for ex. 5MHz, 1.250MHz, 250KHz, 62.5KHz)\n",
-                               d, rxv2_s->error_calc_rate);
+                               d, rx_s->error_calc_rate);
     }
   }
 
   rx_status->tx_lost = false;
 
-  fq_add(rxv2_s->start_time, Rx_Search_start, d);
+  fq_add(rx_s->start_time, Rx_Search_start, d);
 }
 
 static void prepare_rxv1(uint d){
   p2G4_rx_t rxv1_s;
-  p2G4_rxv2_t rxv2_s;
+  p2G4_rx2v1_t rx2v1_s;
 
   p2G4_phy_get(d, &rxv1_s, sizeof(p2G4_rx_t));
-  map_rxv1_to_rxv2(&rxv2_s, &rxv1_s);
+  map_rxv1_to_rx2v1(&rx2v1_s, &rxv1_s);
   rx_a[d].phy_address[0] = rxv1_s.phy_address;
   rx_a[d].v1_request = true;
 
-  prepare_rx_common(d, &rxv2_s);
+  prepare_rx_common(d, &rx2v1_s);
+}
+
+static void prepare_rxv2_common(uint d, p2G4_rx2v1_t *rx_s){
+
+  if ( rx_s->n_addr > P2G4_RXV2_MAX_ADDRESSES ) {
+    bs_trace_error_time_line("Device %u: Attempting to Rx w more than the allowed number of Rx addresses,"
+        "%i > %i\n",d, rx_s->n_addr, P2G4_RXV2_MAX_ADDRESSES);
+  }
+
+  if ( rx_s->resp_type != 0 ){
+    bs_trace_error_time_line("Device %u: Attempting to Rx w resp_type = %i (not yet supported)\n",
+        d, rx_s->resp_type);
+  }
+
+  if ( ( rx_s->pream_and_addr_duration > 0 ) &&
+      ( rx_s->acceptable_pre_truncation >= rx_s->pream_and_addr_duration ) ) {
+    bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation >= pream_and_addr_duration (%u >= %u)\n",
+        d, rx_s->acceptable_pre_truncation, rx_s->pream_and_addr_duration);
+  }
+  if ( rx_s->acceptable_pre_truncation > rx_s->pream_and_addr_duration ) {
+    bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation > pream_and_addr_duration (%u >= %u)\n",
+        d, rx_s->acceptable_pre_truncation, rx_s->pream_and_addr_duration);
+  }
+
+  p2G4_phy_get(d, rx_a[d].phy_address, rx_s->n_addr*sizeof(p2G4_address_t));
+  rx_a[d].v1_request = false;
+
+  prepare_rx_common(d, rx_s);
 }
 
 static void prepare_rxv2(uint d){
   p2G4_rxv2_t rxv2_s;
+  p2G4_rx2v1_t rx2v1_s;
 
   p2G4_phy_get(d, &rxv2_s, sizeof(p2G4_rxv2_t));
+  map_rxv2_to_rx2v1(&rx2v1_s, &rxv2_s);
 
-  if ( rxv2_s.n_addr > P2G4_RXV2_MAX_ADDRESSES ) {
-    bs_trace_error_time_line("Device %u: Attempting to Rx w more than the allowed number of Rx addresses,"
-        "%i > %i\n",d, rxv2_s.n_addr, P2G4_RXV2_MAX_ADDRESSES);
-  }
-
-  if ( rxv2_s.resp_type != 0 ){
-    bs_trace_error_time_line("Device %u: Attempting to Rx w resp_type = %i (not yet supported)\n",
-        d, rxv2_s.resp_type);
-  }
-
-  if ( ( rxv2_s.pream_and_addr_duration > 0 ) &&
-      ( rxv2_s.acceptable_pre_truncation >= rxv2_s.pream_and_addr_duration ) ) {
-    bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation >= pream_and_addr_duration (%u >= %u)\n",
-        d, rxv2_s.acceptable_pre_truncation, rxv2_s.pream_and_addr_duration);
-  }
-  if ( rxv2_s.acceptable_pre_truncation > rxv2_s.pream_and_addr_duration ) {
-    bs_trace_error_time_line("Device %u: Attempting to Rx w acceptable_pre_truncation > pream_and_addr_duration (%u >= %u)\n",
-        d, rxv2_s.acceptable_pre_truncation, rxv2_s.pream_and_addr_duration);
-  }
-
-  p2G4_phy_get(d, rx_a[d].phy_address, rxv2_s.n_addr*sizeof(p2G4_address_t));
-  rx_a[d].v1_request = false;
-
-  prepare_rx_common(d, &rxv2_s);
+  prepare_rxv2_common(d, &rx2v1_s);
 }
 
-static void prepare_CCA(uint d){
-  p2G4_cca_t *cca_req = &cca_a[d].req;
+static void prepare_rx2v1(uint d){
+  p2G4_rx2v1_t rx2v1_s;
+
+  p2G4_phy_get(d, &rx2v1_s, sizeof(p2G4_rx2v1_t));
+
+  prepare_rxv2_common(d, &rx2v1_s);
+}
+
+static void prepare_CCA_common(uint d, p2G4_ccav2_t *cca_s){
+  p2G4_ccav2_t *cca_req = &cca_a[d].req;
 
   //Clear status (and response)
   memset(&cca_a[d], 0, sizeof(cca_status_t));
 
-  p2G4_phy_get(d, cca_req, sizeof(p2G4_cca_t));
+  memcpy(cca_req, cca_s, sizeof(*cca_req));
 
   PAST_CHECK(cca_req->start_time, d, "CCA");
 
@@ -1045,6 +1083,24 @@ static void prepare_CCA(uint d){
   fq_add(cca_req->start_time, Rx_CCA_meas, d);
 }
 
+static void prepare_CCAv1(uint d){
+  p2G4_cca_t cca_s;
+  p2G4_ccav2_t ccav2_s;
+
+  p2G4_phy_get(d, &cca_s, sizeof(p2G4_cca_t));
+  map_ccav1_to_ccav2(&ccav2_s, &cca_s);
+
+  prepare_CCA_common(d, &ccav2_s);
+}
+
+static void prepare_CCAv2(uint d){
+  p2G4_ccav2_t ccav2_s;
+
+  p2G4_phy_get(d, &ccav2_s, sizeof(p2G4_ccav2_t));
+
+  prepare_CCA_common(d, &ccav2_s);
+}
+
 static void p2G4_handle_next_request(uint d) {
   pc_header_t header;
   header = p2G4_get_next_request(d);
@@ -1068,8 +1124,14 @@ static void p2G4_handle_next_request(uint d) {
     case P2G4_MSG_TXV2:
       prepare_txv2(d);
       break;
+    case P2G4_MSG_TX2V1:
+      prepare_tx2v1(d);
+      break;
     case P2G4_MSG_RSSIMEAS:
       prepare_RSSI(d);
+      break;
+    case P2G4_MSG_RSSIV2MEAS:
+      prepare_RSSIv2(d);
       break;
     case P2G4_MSG_RX:
       prepare_rxv1(d);
@@ -1077,8 +1139,14 @@ static void p2G4_handle_next_request(uint d) {
     case P2G4_MSG_RXV2:
       prepare_rxv2(d);
       break;
+    case P2G4_MSG_RX2V1:
+      prepare_rx2v1(d);
+      break;
     case P2G4_MSG_CCA_MEAS:
-      prepare_CCA(d);
+      prepare_CCAv1(d);
+      break;
+    case P2G4_MSG_CCAV2_MEAS:
+      prepare_CCAv2(d);
       break;
     default:
       bs_trace_error_time_line("The device %u has violated the protocol (%u)\n",d, header);
